@@ -1,7 +1,12 @@
 """
 Multi-provider vision analysis client with automatic fallback.
 
-Provider chain: Gemini -> Groq -> Together -> OpenAI
+Fallback chain (FREE first, PAID last):
+  1. Groq        (FREE)  — llama-4-scout, 30 RPM, 14,400 req/day
+  2. Together AI (FREE)  — Llama Vision Free, 60 RPM
+  3. Gemini      (FREE)  — 2.0-flash (NOT 3.1-pro), 15 RPM, 1,500/day
+  4. OpenAI      (PAID)  — gpt-4o-mini, only if all free providers exhausted
+
 When one provider hits its rate limit or errors, the system
 automatically swaps to the next available provider.
 """

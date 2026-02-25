@@ -43,33 +43,31 @@ async def run_detection_cycle() -> dict:
     except Exception as e:
         logger.error(f"Aircraft fetch failed: {e}")
 
-    # --- Traffic camera analysis via Gemini ---
-    camera_tasks = []
-    cam_ids = []
+    # --- Traffic camera analysis via vision API (parallelized) ---
+    async def capture_and_analyze(cam_id: str) -> tuple[str, list[dict]]:
+        """Capture a frame and analyze it in one async task."""
+        frame = await capture_frame(cam_id)
+        detections = await analyze_frame(
+            image_bytes=frame["image_bytes"],
+            camera_lat=frame["lat"],
+            camera_lon=frame["lon"],
+            camera_heading=frame.get("heading", 0),
+            fov_degrees=frame.get("fov", 90),
+        )
+        return cam_id, detections
 
-    for cam_id, cam_info in CAMERA_FEEDS.items():
-        try:
-            frame = await capture_frame(cam_id)
-            cam_ids.append(cam_id)
-            camera_tasks.append(
-                analyze_frame(
-                    image_bytes=frame["image_bytes"],
-                    camera_lat=frame["lat"],
-                    camera_lon=frame["lon"],
-                    camera_heading=frame.get("heading", 0),
-                    fov_degrees=frame.get("fov", 90),
-                )
-            )
-        except Exception as e:
-            logger.warning(f"Camera {cam_id} capture failed: {e}")
+    camera_tasks = [
+        capture_and_analyze(cam_id) for cam_id in CAMERA_FEEDS.keys()
+    ]
 
     if camera_tasks:
-        all_detections = await asyncio.gather(*camera_tasks, return_exceptions=True)
+        results = await asyncio.gather(*camera_tasks, return_exceptions=True)
 
-        for cam_id, detections in zip(cam_ids, all_detections):
-            if isinstance(detections, Exception):
-                logger.error(f"Analysis failed for {cam_id}: {detections}")
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error(f"Camera pipeline failed: {result}")
                 continue
+            cam_id, detections = result
             for det in detections:
                 features.append({
                     "type": "Feature",
@@ -80,7 +78,6 @@ async def run_detection_cycle() -> dict:
                     "properties": {
                         **det,
                         "source": f"camera:{cam_id}",
-                        "source_model": "gemini-2.0-flash",
                     },
                 })
 

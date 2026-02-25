@@ -7,12 +7,12 @@ env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(env_path)
 
 # ─── Vision API Keys (Fallback Chain) ────────────────────────────
-# The system tries each provider in order. When one hits its rate limit
-# or fails, it automatically swaps to the next available provider.
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")        # Free tier: llama-4-scout-17b-16e-instruct
-TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", "")  # Free tier: Llama Vision Free
+# Priority: FREE first → PAID last
+# Groq (free) → Together (free) → Gemini Flash (free) → OpenAI (paid)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")          # FREE — Primary provider
+TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", "")  # FREE — Llama Vision Free
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")      # FREE — 2.0-flash only (NOT 3.1-pro)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")      # 💰 PAID — last resort
 
 # ─── Map & Satellite ─────────────────────────────────────────────
 MAPBOX_TOKEN = os.getenv("MAPBOX_TOKEN", "")
@@ -39,20 +39,22 @@ DEFAULT_BBOX = {
 }
 
 # ─── Vision Provider Priority Order ──────────────────────────────
-# Each entry: (provider_name, api_key, model_name, is_free_tier)
+# Fallback chain: Groq (FREE) → Together (FREE) → Gemini Flash (FREE) → OpenAI (PAID)
+# The system tries each provider in order. When one hits its rate limit
+# or errors out, it automatically swaps to the next available provider.
+# PAID providers are only used when ALL free providers are exhausted.
 def get_vision_providers() -> list[dict]:
-    """Returns available vision providers in fallback priority order."""
+    """Returns available vision providers in fallback priority order.
+
+    Order: FREE providers first, PAID providers last.
+    - Groq:     FREE (primary)  — fastest inference, 30 RPM
+    - Together:  FREE            — Llama Vision, 60 RPM
+    - Gemini:    FREE (flash)    — 2.0-flash only, 15 RPM
+    - OpenAI:    PAID (fallback) — gpt-4o-mini, only if all free exhausted
+    """
     providers = []
 
-    if GEMINI_API_KEY:
-        providers.append({
-            "name": "gemini",
-            "api_key": GEMINI_API_KEY,
-            "model": "gemini-2.0-flash",
-            "free_tier": True,
-            "rate_limit_rpm": 15,       # Free: 15 RPM
-            "daily_limit": 1500,        # Free: 1,500 req/day
-        })
+    # ── FREE TIER PROVIDERS (tried first) ──
 
     if GROQ_API_KEY:
         providers.append({
@@ -70,15 +72,27 @@ def get_vision_providers() -> list[dict]:
             "api_key": TOGETHER_API_KEY,
             "model": "meta-llama/Llama-Vision-Free",
             "free_tier": True,
-            "rate_limit_rpm": 60,
-            "daily_limit": 1000,
+            "rate_limit_rpm": 60,       # Free: 60 RPM
+            "daily_limit": 1000,        # Free: ~1,000 req/day
         })
+
+    if GEMINI_API_KEY:
+        providers.append({
+            "name": "gemini",
+            "api_key": GEMINI_API_KEY,
+            "model": "gemini-2.0-flash",  # FREE model (NOT gemini-3.1-pro)
+            "free_tier": True,
+            "rate_limit_rpm": 15,       # Free: 15 RPM
+            "daily_limit": 1500,        # Free: 1,500 req/day
+        })
+
+    # ── PAID PROVIDERS (last resort only) ──
 
     if OPENAI_API_KEY:
         providers.append({
             "name": "openai",
             "api_key": OPENAI_API_KEY,
-            "model": "gpt-4o-mini",
+            "model": "gpt-4o-mini",     # ~$0.15/M input + $0.60/M output
             "free_tier": False,
             "rate_limit_rpm": 500,
             "daily_limit": 10000,

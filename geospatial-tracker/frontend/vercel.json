@@ -1,0 +1,9 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/ws/(.*)", "destination": "https://your-backend-url.onrender.com/ws/$1" },
+    { "source": "/api/(.*)", "destination": "https://your-backend-url.onrender.com/api/$1" }
+  ]
+}

@@ -43,7 +43,12 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "clients": len(connected_clients)}
+    from analysis.gemini_client import vision_client
+    return {
+        "status": "ok",
+        "clients": len(connected_clients),
+        "vision_providers": vision_client.get_provider_status(),
+    }
 
 
 @app.get("/api/detections")
