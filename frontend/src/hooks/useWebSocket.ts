@@ -5,6 +5,8 @@ interface UseWebSocketOptions {
   onMessage: (data: any) => void;
   reconnectInterval?: number;
   city?: string;
+  lat?: number;
+  lon?: number;
 }
 
 export function useWebSocket({
@@ -12,6 +14,8 @@ export function useWebSocket({
   onMessage,
   reconnectInterval = 3000,
   city = "los_angeles",
+  lat,
+  lon,
 }: UseWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
@@ -34,8 +38,13 @@ export function useWebSocket({
     }
 
     try {
-      // Append city as query param
-      const wsUrl = `${url}?city=${encodeURIComponent(city)}`;
+      // Append city and optional coordinates as query params
+      const params = new URLSearchParams({ city });
+      if (lat !== undefined && lon !== undefined) {
+        params.set("lat", String(lat));
+        params.set("lon", String(lon));
+      }
+      const wsUrl = `${url}?${params}`;
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
@@ -71,9 +80,9 @@ export function useWebSocket({
       console.error("[WS] Failed to create WebSocket:", e);
       reconnectTimer.current = setTimeout(connect, reconnectInterval);
     }
-  }, [url, reconnectInterval, city]);
+  }, [url, reconnectInterval, city, lat, lon]);
 
-  // Send a message to the server (e.g. city switch)
+  // Send a message to the server (e.g. city/coordinate switch)
   const sendMessage = useCallback((data: Record<string, unknown>) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(data));
@@ -92,12 +101,17 @@ export function useWebSocket({
     };
   }, [connect]);
 
-  // When city changes, send switch message to server
+  // When city or coordinates change, send switch message to server
   useEffect(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ city }));
+      const msg: Record<string, unknown> = { city };
+      if (lat !== undefined && lon !== undefined) {
+        msg.lat = lat;
+        msg.lon = lon;
+      }
+      wsRef.current.send(JSON.stringify(msg));
     }
-  }, [city]);
+  }, [city, lat, lon]);
 
   return { connected, lastUpdate, sendMessage };
 }

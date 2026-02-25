@@ -1,21 +1,21 @@
 import asyncio
 import logging
-from ingestion.traffic_cams import capture_frame, CAMERA_FEEDS
+from ingestion.traffic_cams import capture_frame, get_cameras_for_bbox
 from ingestion.opensky import fetch_aircraft
 from analysis.gemini_client import analyze_frame
 from analysis.geofencing import check_geofences, get_geofence_zones_geojson
 from analysis.anomaly import detect_anomalies
 from analysis.history import history_store
-from config import CITY_CONFIGS, OPENWEATHERMAP_API_KEY
+from config import get_city_config, OPENWEATHERMAP_API_KEY
 
 logger = logging.getLogger(__name__)
 
 
-async def run_detection_cycle(city: str = "los_angeles") -> dict:
+async def run_detection_cycle(city: str = "los_angeles", lat: float | None = None, lon: float | None = None) -> dict:
     """
     One full detection cycle:
     1. Pull aircraft data from OpenSky (structured API — no vision needed)
-    2. Capture frames from all traffic cameras
+    2. Capture frames from traffic cameras in bbox
     3. Send each frame to vision API for panoptic detection
     4. Run geofencing checks
     5. Run anomaly detection
@@ -23,7 +23,7 @@ async def run_detection_cycle(city: str = "los_angeles") -> dict:
     7. Save snapshot to history
     8. Merge all results into a single GeoJSON FeatureCollection
     """
-    city_config = CITY_CONFIGS.get(city, CITY_CONFIGS["los_angeles"])
+    city_config = get_city_config(city=city, lat=lat, lon=lon)
     features = []
     alerts = []
     aircraft_list = []
@@ -60,6 +60,8 @@ async def run_detection_cycle(city: str = "los_angeles") -> dict:
     async def capture_and_analyze(cam_id: str) -> tuple[str, list[dict]]:
         """Capture a frame and analyze it in one async task."""
         frame = await capture_frame(cam_id)
+        if frame is None:
+            return cam_id, []
         detections = await analyze_frame(
             image_bytes=frame["image_bytes"],
             camera_lat=frame["lat"],
@@ -69,8 +71,10 @@ async def run_detection_cycle(city: str = "los_angeles") -> dict:
         )
         return cam_id, detections
 
+    # Only process cameras that are within the current bbox
+    available_cameras = get_cameras_for_bbox(city_config["bbox"])
     camera_tasks = [
-        capture_and_analyze(cam_id) for cam_id in CAMERA_FEEDS.keys()
+        capture_and_analyze(cam_id) for cam_id in available_cameras
     ]
 
     if camera_tasks:
@@ -157,19 +161,22 @@ async def run_detection_cycle(city: str = "los_angeles") -> dict:
     except Exception as e:
         logger.error(f"Weather fetch failed: {e}")
 
+    location_key = city if city in ("los_angeles", "new_york", "san_francisco", "chicago") else f"custom_{city_config['lat']:.2f}_{city_config['lon']:.2f}"
+
     geojson = {
         "type": "FeatureCollection",
         "features": features,
         "metadata": {
-            "city": city,
+            "city": location_key,
             "city_name": city_config["name"],
             "alert_count": len(alerts),
+            "center": city_config["center"],
         },
     }
 
     # --- Save to history ---
     try:
-        history_store.save_snapshot(geojson, city=city, alerts=alerts)
+        history_store.save_snapshot(geojson, city=location_key, alerts=alerts)
     except Exception as e:
         logger.error(f"History save failed: {e}")
 

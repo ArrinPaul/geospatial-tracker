@@ -5,12 +5,12 @@ import asyncio
 import json
 import logging
 from analysis.panoptic import run_detection_cycle
-from config import DETECTION_CYCLE_INTERVAL, CITY_CONFIGS
+from config import DETECTION_CYCLE_INTERVAL, CITY_CONFIGS, get_city_config
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-connected_clients: list[dict] = []  # Each: {"ws": WebSocket, "city": str}
+connected_clients: list[dict] = []  # Each: {"ws": WebSocket, "city": str, "lat": float|None, "lon": float|None}
 _broadcast_task: asyncio.Task | None = None
 
 
@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
     logger.info("Broadcast loop stopped.")
 
 
-app = FastAPI(title="Geospatial Tracker", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="Geospatial Tracker", version="3.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -73,10 +73,14 @@ async def get_cities():
 # ─── Detections ──────────────────────────────────────────────────
 
 @app.get("/api/detections")
-async def get_detections(city: str = Query("los_angeles")):
-    """REST endpoint for initial data load (no WebSocket needed)."""
+async def get_detections(
+    city: str = Query("los_angeles"),
+    lat: float | None = Query(None),
+    lon: float | None = Query(None),
+):
+    """REST endpoint for initial data load. Accepts city name or lat/lon."""
     try:
-        geojson = await run_detection_cycle(city=city)
+        geojson = await run_detection_cycle(city=city, lat=lat, lon=lon)
         return geojson
     except Exception as e:
         logger.error(f"REST detection error: {e}")
@@ -144,11 +148,15 @@ async def get_history_timeline(
 # ─── Weather ─────────────────────────────────────────────────────
 
 @app.get("/api/weather")
-async def get_weather(city: str = Query("los_angeles")):
-    """Get weather data for a city."""
+async def get_weather(
+    city: str = Query("los_angeles"),
+    lat: float | None = Query(None),
+    lon: float | None = Query(None),
+):
+    """Get weather data for a city or coordinates."""
     from ingestion.weather import fetch_weather
-    city_config = CITY_CONFIGS.get(city, CITY_CONFIGS["los_angeles"])
-    weather = await fetch_weather(city_config["lat"], city_config["lon"])
+    cfg = get_city_config(city=city, lat=lat, lon=lon)
+    weather = await fetch_weather(cfg["lat"], cfg["lon"])
     if weather:
         return weather
     return {"error": "Weather data unavailable (check OPENWEATHERMAP_API_KEY)"}
@@ -157,15 +165,19 @@ async def get_weather(city: str = Query("los_angeles")):
 # ─── Satellite ───────────────────────────────────────────────────
 
 @app.get("/api/satellite")
-async def get_satellite_tile(city: str = Query("los_angeles")):
-    """Get Sentinel satellite tile URL params for a city."""
+async def get_satellite_tile(
+    city: str = Query("los_angeles"),
+    lat: float | None = Query(None),
+    lon: float | None = Query(None),
+):
+    """Get Sentinel satellite tile URL params."""
     from config import SENTINEL_INSTANCE_ID
-    city_config = CITY_CONFIGS.get(city, CITY_CONFIGS["los_angeles"])
+    cfg = get_city_config(city=city, lat=lat, lon=lon)
     if not SENTINEL_INSTANCE_ID:
         return {"error": "SENTINEL_INSTANCE_ID not configured"}
     return {
         "wms_url": f"https://services.sentinel-hub.com/ogc/wms/{SENTINEL_INSTANCE_ID}",
-        "bbox": city_config["satellite_bbox"],
+        "bbox": cfg["satellite_bbox"],
         "layers": "TRUE_COLOR",
         "crs": "EPSG:4326",
     }
@@ -174,21 +186,37 @@ async def get_satellite_tile(city: str = Query("los_angeles")):
 # ─── WebSocket ───────────────────────────────────────────────────
 
 @app.websocket("/ws/live")
-async def websocket_endpoint(ws: WebSocket, city: str = Query("los_angeles")):
+async def websocket_endpoint(
+    ws: WebSocket,
+    city: str = Query("los_angeles"),
+    lat: float | None = Query(None),
+    lon: float | None = Query(None),
+):
     await ws.accept()
-    client = {"ws": ws, "city": city}
+    client = {"ws": ws, "city": city, "lat": lat, "lon": lon}
     connected_clients.append(client)
-    logger.info(f"Client connected (city={city}). Total: {len(connected_clients)}")
+    logger.info(f"Client connected (city={city}, lat={lat}, lon={lon}). Total: {len(connected_clients)}")
     try:
         while True:
             msg = await ws.receive_text()
-            # Allow city switching via WebSocket message
             try:
                 data = json.loads(msg)
-                if "city" in data and data["city"] in CITY_CONFIGS:
-                    client["city"] = data["city"]
-                    logger.info(f"Client switched to city: {data['city']}")
-            except (json.JSONDecodeError, KeyError):
+                # Accept city name OR lat/lon coordinates
+                if "lat" in data and "lon" in data:
+                    client["lat"] = float(data["lat"])
+                    client["lon"] = float(data["lon"])
+                    client["city"] = data.get("city", f"custom_{data['lat']:.2f}_{data['lon']:.2f}")
+                    logger.info(f"Client switched to coords: {client['lat']}, {client['lon']}")
+                elif "city" in data:
+                    if data["city"] in CITY_CONFIGS:
+                        client["city"] = data["city"]
+                        client["lat"] = None
+                        client["lon"] = None
+                        logger.info(f"Client switched to city: {data['city']}")
+                    else:
+                        client["city"] = data["city"]
+                        logger.info(f"Client switched to custom city: {data['city']}")
+            except (json.JSONDecodeError, KeyError, ValueError):
                 pass  # keep-alive ping
     except (WebSocketDisconnect, Exception):
         if client in connected_clients:
@@ -197,25 +225,32 @@ async def websocket_endpoint(ws: WebSocket, city: str = Query("los_angeles")):
 
 
 async def broadcast_loop():
-    """Runs on a loop — pulls data per city, broadcasts to matching clients."""
+    """Runs on a loop — pulls data per unique location, broadcasts to matching clients."""
     while True:
         try:
             if connected_clients:
-                # Group clients by city
-                cities_needed: dict[str, list[dict]] = {}
+                # Group clients by unique location key
+                location_groups: dict[str, list[dict]] = {}
                 for client in connected_clients.copy():
-                    city = client.get("city", "los_angeles")
-                    cities_needed.setdefault(city, []).append(client)
+                    if client.get("lat") is not None and client.get("lon") is not None:
+                        key = f"coords_{client['lat']:.2f}_{client['lon']:.2f}"
+                    else:
+                        key = client.get("city", "los_angeles")
+                    location_groups.setdefault(key, []).append(client)
 
-                # Run detection cycle per city
-                for city, clients in cities_needed.items():
+                for location_key, clients in location_groups.items():
                     try:
-                        logger.info(f"Detection cycle: {city} ({len(clients)} client(s))")
-                        geojson = await run_detection_cycle(city=city)
+                        sample = clients[0]
+                        lat = sample.get("lat")
+                        lon = sample.get("lon")
+                        city = sample.get("city", "los_angeles")
+
+                        logger.info(f"Detection cycle: {location_key} ({len(clients)} client(s))")
+                        geojson = await run_detection_cycle(city=city, lat=lat, lon=lon)
                         payload = json.dumps(geojson)
                         logger.info(
                             f"Broadcasting {len(geojson.get('features', []))} "
-                            f"features to {city}"
+                            f"features to {location_key}"
                         )
 
                         for client in clients:
@@ -225,7 +260,7 @@ async def broadcast_loop():
                                 if client in connected_clients:
                                     connected_clients.remove(client)
                     except Exception as e:
-                        logger.error(f"Detection cycle error for {city}: {e}")
+                        logger.error(f"Detection cycle error for {location_key}: {e}")
             else:
                 logger.debug("No clients connected, skipping cycle")
         except Exception as e:

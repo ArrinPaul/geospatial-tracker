@@ -9,9 +9,11 @@ interface Camera {
 
 const CAMERAS: Camera[] = [
   { id: "I-405_LAX", label: "I-405 @ LAX", lat: 33.9425, lon: -118.4081 },
-  { id: "I-5_Downtown", label: "I-5 Downtown", lat: 34.0522, lon: -118.2437 },
+  { id: "I-5_Downtown_LA", label: "I-5 Downtown LA", lat: 34.0522, lon: -118.2437 },
   { id: "I-10_SantaMonica", label: "I-10 Santa Monica", lat: 34.0195, lon: -118.4912 },
   { id: "US-101_Hollywood", label: "US-101 Hollywood", lat: 34.1017, lon: -118.3387 },
+  { id: "I-80_SF_Bay_Bridge", label: "I-80 Bay Bridge", lat: 37.7983, lon: -122.3778 },
+  { id: "US-101_SF_Downtown", label: "US-101 SF Downtown", lat: 37.7749, lon: -122.4194 },
 ];
 
 export default function CameraPanel() {
@@ -19,7 +21,6 @@ export default function CameraPanel() {
 
   return (
     <div
-      className="panel"
       style={{
         position: "absolute",
         bottom: 16,
@@ -28,6 +29,10 @@ export default function CameraPanel() {
         overflow: "hidden",
         zIndex: 10,
         animation: "fade-in-up 0.9s ease-out",
+        background: "var(--bg-panel)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: "var(--panel-radius)",
+        backdropFilter: "blur(10px)",
       }}
     >
       <div
@@ -55,9 +60,8 @@ export default function CameraPanel() {
           gap: 8,
         }}>
           <span style={{
-            width: 6, height: 6, borderRadius: 1,
-            background: "var(--accent-primary)",
-            boxShadow: "0 0 8px var(--accent-primary-glow)",
+            width: 5, height: 5, borderRadius: 1,
+            background: "#808890",
             display: "inline-block",
           }} />
           ISR FEEDS
@@ -81,7 +85,7 @@ export default function CameraPanel() {
               key={cam.id}
               style={{
                 padding: "8px 0",
-                borderBottom: "1px solid rgba(255,255,255,0.03)",
+                borderBottom: "1px solid rgba(255,255,255,0.02)",
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
@@ -110,19 +114,19 @@ export default function CameraPanel() {
                 display: "flex", alignItems: "center", gap: 4,
               }}>
                 <span style={{
-                  width: 5, height: 5, borderRadius: "50%",
-                  background: "#39ff14",
-                  boxShadow: "0 0 6px rgba(57,255,20,0.6)",
-                  animation: "indicator-pulse 1.5s ease-in-out infinite",
+                  width: 4, height: 4, borderRadius: "50%",
+                  background: "#808890",
+                  boxShadow: "0 0 4px rgba(128,136,144,0.3)",
+                  animation: "indicator-pulse 2s ease-in-out infinite",
                   display: "inline-block",
                 }} />
                 <span style={{
                   fontFamily: "var(--font-display)",
                   fontSize: 8,
                   letterSpacing: 1.5,
-                  color: "#39ff14",
+                  color: "#6a7380",
                 }}>
-                  LIVE
+                  ACTIVE
                 </span>
               </div>
             </div>

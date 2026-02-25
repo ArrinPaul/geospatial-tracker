@@ -1,38 +1,38 @@
 /* ═══════════════════════════════════════════════════════════════════
    GEOSPATIAL INTELLIGENCE PLATFORM — TACTICAL DISPLAY SYSTEM
-   Aesthetic: Palantir Gotham / CIA SOC Dark Operations Console
+   Aesthetic: Deep Operations Console — Dark Monochrome
    ═══════════════════════════════════════════════════════════════════ */
 
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&display=swap');
 
 :root {
-  /* Core palette — cold intel blue */
-  --bg-abyss: #05080d;
-  --bg-panel: rgba(8, 14, 25, 0.92);
-  --bg-panel-hover: rgba(12, 20, 35, 0.95);
-  --bg-input: rgba(6, 12, 22, 0.9);
+  /* Core palette — pure dark monochrome */
+  --bg-abyss: #050608;
+  --bg-panel: rgba(10, 12, 16, 0.94);
+  --bg-panel-hover: rgba(16, 19, 26, 0.96);
+  --bg-input: rgba(8, 10, 14, 0.92);
 
-  /* Accent system */
-  --accent-primary: #00e5ff;
-  --accent-primary-dim: rgba(0, 229, 255, 0.15);
-  --accent-primary-glow: rgba(0, 229, 255, 0.4);
-  --accent-secondary: #39ff14;
-  --accent-secondary-dim: rgba(57, 255, 20, 0.12);
-  --accent-warning: #ff9100;
-  --accent-critical: #ff1744;
-  --accent-critical-dim: rgba(255, 23, 68, 0.15);
-  --accent-info: #448aff;
+  /* Monochrome accent system — cool slate whites */
+  --accent-primary: #c8cfd8;
+  --accent-primary-dim: rgba(200, 207, 216, 0.08);
+  --accent-primary-glow: rgba(200, 207, 216, 0.15);
+  --accent-secondary: #8a929e;
+  --accent-secondary-dim: rgba(138, 146, 158, 0.08);
+  --accent-warning: #a0917a;
+  --accent-critical: #b07070;
+  --accent-critical-dim: rgba(176, 112, 112, 0.1);
+  --accent-info: #8a9aae;
 
   /* Text hierarchy */
-  --text-primary: #e0e6ed;
-  --text-secondary: #7a8a9e;
-  --text-tertiary: #3d4f65;
+  --text-primary: #d0d4da;
+  --text-secondary: #6a7380;
+  --text-tertiary: #3a424e;
   --text-accent: var(--accent-primary);
 
   /* Borders */
-  --border-subtle: rgba(0, 229, 255, 0.08);
-  --border-active: rgba(0, 229, 255, 0.25);
-  --border-glow: rgba(0, 229, 255, 0.5);
+  --border-subtle: rgba(200, 207, 216, 0.06);
+  --border-active: rgba(200, 207, 216, 0.12);
+  --border-glow: rgba(200, 207, 216, 0.2);
 
   /* Fonts */
   --font-display: 'Orbitron', sans-serif;
@@ -40,7 +40,7 @@
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
   /* Sizing */
-  --panel-radius: 3px;
+  --panel-radius: 2px;
   --panel-padding: 16px;
 }
 
@@ -70,11 +70,11 @@ body {
 ::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 229, 255, 0.2);
+  background: rgba(200, 207, 216, 0.1);
   border-radius: 1px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 229, 255, 0.4);
+  background: rgba(200, 207, 216, 0.2);
 }
 
 /* ─── MapLibre overrides ────────────────────────────────────────── */
@@ -87,7 +87,7 @@ body {
   background: var(--bg-panel) !important;
   border: 1px solid var(--border-subtle) !important;
   border-radius: 2px !important;
-  box-shadow: 0 0 20px rgba(0, 0, 0, 0.6) !important;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.8) !important;
 }
 
 .maplibregl-ctrl-group button {
@@ -104,7 +104,7 @@ body {
 }
 
 .maplibregl-ctrl-group button span {
-  filter: invert(1) brightness(0.7) !important;
+  filter: invert(1) brightness(0.5) !important;
 }
 
 .maplibregl-popup-content {
@@ -115,7 +115,7 @@ body {
   font-family: var(--font-mono) !important;
   font-size: 11px !important;
   padding: 12px !important;
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.7), 0 0 15px var(--accent-primary-dim) !important;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.8) !important;
 }
 
 .maplibregl-popup-tip {
@@ -137,16 +137,75 @@ body {
     0deg,
     transparent,
     transparent 2px,
-    rgba(0, 0, 0, 0.03) 2px,
-    rgba(0, 0, 0, 0.03) 4px
+    rgba(0, 0, 0, 0.02) 2px,
+    rgba(0, 0, 0, 0.02) 4px
   );
   mix-blend-mode: multiply;
+}
+
+/* ─── Search box ────────────────────────────────────────────────── */
+.search-container {
+  position: relative;
+}
+
+.search-container input {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 2px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 7px 10px 7px 28px;
+  outline: none;
+  transition: border-color 0.2s;
+  letter-spacing: 0.3px;
+}
+
+.search-container input:focus {
+  border-color: var(--border-active);
+}
+
+.search-container input::placeholder {
+  color: var(--text-tertiary);
+  letter-spacing: 1px;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-top: none;
+  border-radius: 0 0 2px 2px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 100;
+}
+
+.search-results div {
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 1px solid rgba(255,255,255,0.02);
+}
+
+.search-results div:hover {
+  background: var(--accent-primary-dim);
+  color: var(--text-primary);
 }
 
 /* ─── Keyframe animations ───────────────────────────────────────── */
 @keyframes indicator-pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  50% { opacity: 0.3; }
 }
 
 @keyframes fade-in-up {

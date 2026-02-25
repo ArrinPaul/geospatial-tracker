@@ -42,6 +42,12 @@ interface Alert {
   zone_name?: string;
 }
 
+interface SearchResult {
+  display_name: string;
+  lat: string;
+  lon: string;
+}
+
 /* ─── Utility: formatted time ────────────────────────────────── */
 const clockFormat = () => {
   const d = new Date();
@@ -74,6 +80,13 @@ export default function LiveMap() {
   const [replaySnapshots, setReplaySnapshots] = useState<any[]>([]);
   const [replayIndex, setReplayIndex] = useState(0);
 
+  // Location search
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const [customCoords, setCustomCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
+
   /* ─── Clock tick ───────────────────────────────────────────── */
   useEffect(() => {
     const iv = setInterval(() => setClock(clockFormat()), 1000);
@@ -95,15 +108,20 @@ export default function LiveMap() {
       });
   }, []);
 
-  /* ─── Fetch weather on city change ─────────────────────────── */
+  /* ─── Fetch weather on city/location change ─────────────────── */
   useEffect(() => {
-    fetch(`${API_BASE}/api/weather?city=${city}`)
+    const params = new URLSearchParams({ city });
+    if (customCoords) {
+      params.set("lat", String(customCoords.lat));
+      params.set("lon", String(customCoords.lon));
+    }
+    fetch(`${API_BASE}/api/weather?${params}`)
       .then((r) => r.json())
       .then((data) => {
         if (!data.error) setWeather(data);
       })
       .catch(() => setWeather(null));
-  }, [city]);
+  }, [city, customCoords]);
 
   /* ─── Fetch geofence zones ─────────────────────────────────── */
   useEffect(() => {
@@ -153,18 +171,67 @@ export default function LiveMap() {
     [replayMode],
   );
 
-  const { connected, lastUpdate } = useWebSocket({
+  const { connected, lastUpdate, sendMessage } = useWebSocket({
     url: WS_URL,
     onMessage: handleMessage,
     city,
+    lat: customCoords?.lat,
+    lon: customCoords?.lon,
   });
 
   /* ─── City change — fly to new location ────────────────────── */
   useEffect(() => {
-    if (!map.current || !cities[city]) return;
+    if (!map.current) return;
+    if (customCoords) {
+      map.current.flyTo({
+        center: [customCoords.lon, customCoords.lat],
+        zoom: 11,
+        duration: 2500,
+        essential: true,
+      });
+      return;
+    }
+    if (!cities[city]) return;
     const cfg = cities[city];
     map.current.flyTo({ center: cfg.center, zoom: cfg.zoom, duration: 2500, essential: true });
-  }, [city, cities]);
+  }, [city, cities, customCoords]);
+
+  /* ─── Location search via Nominatim ────────────────────────── */
+  const handleSearch = useCallback((query: string) => {
+    setSearchQuery(query);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    if (query.length < 3) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return;
+    }
+    searchTimeout.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`,
+          { headers: { "Accept-Language": "en" } }
+        );
+        const data = await res.json();
+        setSearchResults(data);
+        setShowSearchResults(data.length > 0);
+      } catch {
+        setSearchResults([]);
+        setShowSearchResults(false);
+      }
+    }, 400);
+  }, []);
+
+  const selectSearchResult = useCallback((result: SearchResult) => {
+    const lat = parseFloat(result.lat);
+    const lon = parseFloat(result.lon);
+    setCustomCoords({ lat, lon });
+    setCity(`custom_${lat.toFixed(2)}_${lon.toFixed(2)}`);
+    setSearchQuery(result.display_name.split(",")[0]);
+    setShowSearchResults(false);
+
+    // Notify backend via WebSocket
+    sendMessage({ lat, lon, city: result.display_name.split(",")[0] });
+  }, [sendMessage]);
 
   /* ─── Historical replay ────────────────────────────────────── */
   const startReplay = async () => {
@@ -260,7 +327,7 @@ export default function LiveMap() {
       container: mapContainer.current,
       style: {
         version: 8,
-        name: "Tactical Dark Globe",
+        name: "Dark Operations Globe",
         glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
         sources: {
           "carto-dark": {
@@ -272,24 +339,25 @@ export default function LiveMap() {
             ],
             tileSize: 256,
             attribution: "&copy; CARTO &copy; OSM contributors",
-            maxzoom: 19,
+            maxzoom: 20,
           },
         },
         layers: [
           {
             id: "background",
             type: "background",
-            paint: { "background-color": "#050a12" },
+            paint: { "background-color": "#040506" },
           },
           {
             id: "carto-tiles",
             type: "raster",
             source: "carto-dark",
             paint: {
-              "raster-opacity": 0.85,
-              "raster-saturation": -0.3,
-              "raster-brightness-max": 0.7,
-              "raster-contrast": 0.15,
+              "raster-opacity": 0.9,
+              "raster-saturation": -1,
+              "raster-brightness-max": 0.55,
+              "raster-brightness-min": 0.0,
+              "raster-contrast": 0.2,
             },
           },
         ],
@@ -298,6 +366,7 @@ export default function LiveMap() {
       zoom: 3,
       pitch: 0,
       maxPitch: 85,
+      maxZoom: 20,
       maplibreLogo: false,
       attributionControl: false,
     });
@@ -312,9 +381,9 @@ export default function LiveMap() {
       // Add atmosphere / sky for the globe
       try {
         m.setSky?.({
-          "sky-color": "#050a12",
-          "horizon-color": "#0a1628",
-          "fog-color": "#050a12",
+          "sky-color": "#040506",
+          "horizon-color": "#0c0e12",
+          "fog-color": "#040506",
           "sky-horizon-blend": 0.5,
           "horizon-fog-blend": 0.8,
           "fog-ground-blend": 0.9,
@@ -347,12 +416,12 @@ export default function LiveMap() {
           "heatmap-color": [
             "interpolate", ["linear"], ["heatmap-density"],
             0, "rgba(0,0,0,0)",
-            0.15, "rgba(0,229,255,0.15)",
-            0.3, "rgba(0,229,255,0.35)",
-            0.5, "rgba(0,180,255,0.55)",
-            0.7, "rgba(255,145,0,0.75)",
-            0.85, "rgba(255,23,68,0.85)",
-            1, "rgba(255,0,50,1)",
+            0.15, "rgba(180,185,192,0.1)",
+            0.3, "rgba(180,185,192,0.25)",
+            0.5, "rgba(200,205,213,0.4)",
+            0.7, "rgba(220,222,228,0.6)",
+            0.85, "rgba(235,237,240,0.75)",
+            1, "rgba(255,255,255,0.9)",
           ],
           "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 2, 15, 30],
           "heatmap-opacity": 0.8,
@@ -367,9 +436,9 @@ export default function LiveMap() {
         paint: {
           "fill-color": [
             "match", ["get", "severity"],
-            "critical", "rgba(255,23,68,0.08)",
-            "high", "rgba(255,145,0,0.06)",
-            "rgba(0,229,255,0.04)",
+            "critical", "rgba(200,200,200,0.06)",
+            "high", "rgba(180,180,180,0.04)",
+            "rgba(160,160,160,0.03)",
           ],
           "fill-opacity": 0.6,
         },
@@ -382,9 +451,9 @@ export default function LiveMap() {
         paint: {
           "line-color": [
             "match", ["get", "severity"],
-            "critical", "#ff1744",
-            "high", "#ff9100",
-            "#00e5ff",
+            "critical", "#a0a0a0",
+            "high", "#808080",
+            "#606060",
           ],
           "line-width": 1.5,
           "line-dasharray": [6, 3],
@@ -404,8 +473,8 @@ export default function LiveMap() {
           "text-font": ["Open Sans Regular"],
         },
         paint: {
-          "text-color": "#ff9100",
-          "text-halo-color": "rgba(0,0,0,0.8)",
+          "text-color": "#808080",
+          "text-halo-color": "rgba(0,0,0,0.9)",
           "text-halo-width": 1.5,
         },
       });
@@ -422,9 +491,9 @@ export default function LiveMap() {
           "circle-stroke-width": 1,
           "circle-stroke-color": [
             "interpolate", ["linear"], ["coalesce", ["get", "altitude"], 0],
-            0, "rgba(0,229,255,0.3)",
-            5000, "rgba(255,145,0,0.3)",
-            12000, "rgba(255,23,68,0.3)",
+            0, "rgba(200,207,216,0.2)",
+            5000, "rgba(180,185,192,0.2)",
+            12000, "rgba(160,165,172,0.2)",
           ],
           "circle-blur": 1,
           "circle-opacity": 0.6,
@@ -440,12 +509,12 @@ export default function LiveMap() {
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 3, 14, 8],
           "circle-color": [
             "interpolate", ["linear"], ["coalesce", ["get", "altitude"], 0],
-            0, "#00e5ff",
-            5000, "#ff9100",
-            12000, "#ff1744",
+            0, "#c8cfd8",
+            5000, "#a0a8b2",
+            12000, "#808890",
           ],
           "circle-stroke-width": 1.5,
-          "circle-stroke-color": "rgba(255,255,255,0.6)",
+          "circle-stroke-color": "rgba(255,255,255,0.3)",
           "circle-opacity": 0.95,
         },
       });
@@ -458,10 +527,10 @@ export default function LiveMap() {
         filter: ["==", ["get", "category"], "vehicles"],
         paint: {
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 3, 14, 6],
-          "circle-color": "#448aff",
+          "circle-color": "#8a929e",
           "circle-opacity": 0.85,
           "circle-stroke-width": 1,
-          "circle-stroke-color": "rgba(68,138,255,0.4)",
+          "circle-stroke-color": "rgba(138,146,158,0.3)",
         },
       });
 
@@ -473,10 +542,10 @@ export default function LiveMap() {
         filter: ["==", ["get", "category"], "pedestrians"],
         paint: {
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 2, 14, 5],
-          "circle-color": "#ffd600",
+          "circle-color": "#606870",
           "circle-opacity": 0.7,
           "circle-stroke-width": 0.5,
-          "circle-stroke-color": "rgba(255,214,0,0.3)",
+          "circle-stroke-color": "rgba(96,104,112,0.3)",
         },
       });
 
@@ -489,7 +558,7 @@ export default function LiveMap() {
 
           const rows = Object.entries(props)
             .filter(([k]) => !["source_model", "bounding_box"].includes(k))
-            .map(([k, v]) => `<tr><td style="color:#7a8a9e;padding:2px 8px 2px 0;font-size:9px;text-transform:uppercase;letter-spacing:1px;font-family:'Orbitron',sans-serif">${k}</td><td style="color:#e0e6ed;padding:2px 0">${v}</td></tr>`)
+            .map(([k, v]) => `<tr><td style="color:#505862;padding:2px 8px 2px 0;font-size:9px;text-transform:uppercase;letter-spacing:1px;font-family:'Orbitron',sans-serif">${k}</td><td style="color:#c8cfd8;padding:2px 0">${v}</td></tr>`)
             .join("");
 
           new maplibregl.Popup({ offset: 10, closeButton: true, maxWidth: "300px" })
@@ -512,6 +581,7 @@ export default function LiveMap() {
 
     map.current.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true }), "bottom-right");
     map.current.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
+    map.current.addControl(new maplibregl.ScaleControl({ maxWidth: 100 }), "bottom-left");
 
     return () => {
       map.current?.remove();
@@ -521,14 +591,14 @@ export default function LiveMap() {
 
   /* ─── Severity color helper ────────────────────────────────── */
   const severityColor = (s: string) =>
-    s === "critical" ? "#ff1744" : s === "high" ? "#ff9100" : s === "warning" ? "#ffd600" : "#448aff";
+    s === "critical" ? "#b0b0b0" : s === "high" ? "#909090" : s === "warning" ? "#787878" : "#606060";
 
   const severityClass = (s: string) =>
     s === "critical" ? "severity-critical" : s === "high" ? "severity-high" : s === "warning" ? "severity-warning" : "severity-info";
 
   /* ─── Render ───────────────────────────────────────────────── */
   return (
-    <div style={{ position: "relative", width: "100vw", height: "100vh", overflow: "hidden", background: "#050a12" }}>
+    <div style={{ position: "relative", width: "100vw", height: "100vh", overflow: "hidden", background: "#040506" }}>
       {/* Scanline overlay */}
       <div className="scanline-overlay" />
 
@@ -538,53 +608,58 @@ export default function LiveMap() {
       {/* ── Top bar — system header ───────────────────────────── */}
       <div style={{
         position: "absolute", top: 0, left: 0, right: 0, height: 40,
-        background: "linear-gradient(180deg, rgba(5,8,13,0.95) 0%, rgba(5,8,13,0.7) 80%, transparent 100%)",
+        background: "linear-gradient(180deg, rgba(4,5,6,0.96) 0%, rgba(4,5,6,0.7) 80%, transparent 100%)",
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "0 20px", zIndex: 20, borderBottom: "1px solid rgba(0,229,255,0.06)",
+        padding: "0 20px", zIndex: 20, borderBottom: "1px solid rgba(200,207,216,0.04)",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {/* Logo / radar icon */}
           <div style={{
             width: 24, height: 24, borderRadius: "50%",
-            border: "1.5px solid rgba(0,229,255,0.4)",
+            border: "1.5px solid rgba(200,207,216,0.2)",
             display: "flex", alignItems: "center", justifyContent: "center",
             position: "relative", overflow: "hidden",
           }}>
             <div style={{
               width: 4, height: 4, borderRadius: "50%",
-              background: "#00e5ff", boxShadow: "0 0 8px rgba(0,229,255,0.8)",
+              background: "#c8cfd8", boxShadow: "0 0 6px rgba(200,207,216,0.4)",
             }} />
             <div style={{
               position: "absolute", top: "50%", left: "50%", width: "50%", height: 1,
-              background: "rgba(0,229,255,0.6)", transformOrigin: "left center",
+              background: "rgba(200,207,216,0.3)", transformOrigin: "left center",
               animation: "sweep 3s linear infinite",
             }} />
           </div>
           <span style={{
             fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 700,
-            letterSpacing: 4, color: "#00e5ff",
-            textShadow: "0 0 20px rgba(0,229,255,0.3)",
+            letterSpacing: 4, color: "#c8cfd8",
+            textShadow: "0 0 15px rgba(200,207,216,0.15)",
           }}>
             GEOINT PLATFORM
           </span>
           <span style={{
-            fontFamily: "var(--font-mono)", fontSize: 9, color: "rgba(122,138,158,0.6)",
+            fontFamily: "var(--font-mono)", fontSize: 9, color: "rgba(100,108,120,0.5)",
             letterSpacing: 1, marginLeft: 4,
           }}>
-            v3.0 TACTICAL
+            v3.0
           </span>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
           {/* Connection status */}
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span className={`status-dot ${connected ? "live" : "offline"}`} />
+            <div style={{
+              width: 6, height: 6, borderRadius: "50%",
+              background: connected ? "#808890" : "#605050",
+              boxShadow: connected ? "0 0 6px rgba(128,136,144,0.4)" : "none",
+              animation: connected ? "indicator-pulse 2s ease-in-out infinite" : "none",
+            }} />
             <span style={{
               fontFamily: "var(--font-mono)", fontSize: 10,
-              color: connected ? "#39ff14" : "#ff1744",
+              color: connected ? "#8a929e" : "#706060",
               letterSpacing: 1,
             }}>
-              {replayMode ? "REPLAY" : connected ? "LIVE FEED" : "OFFLINE"}
+              {replayMode ? "REPLAY" : connected ? "LIVE" : "OFFLINE"}
             </span>
           </div>
 
@@ -594,56 +669,131 @@ export default function LiveMap() {
             display: "flex", gap: 12, letterSpacing: 0.5,
           }}>
             <span>{clock.date}</span>
-            <span style={{ color: "#00e5ff" }}>{clock.utc}Z</span>
+            <span style={{ color: "#c8cfd8" }}>{clock.utc}Z</span>
           </div>
         </div>
       </div>
 
       {/* ── Left panel — Command & Control ────────────────────── */}
-      <div className="hud-panel panel corner-brackets" style={{
+      <div style={{
         position: "absolute", top: 56, left: 16,
         padding: 16, minWidth: 260, maxWidth: 280, zIndex: 10,
         animation: "fade-in-up 0.6s ease-out",
+        background: "var(--bg-panel)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: "var(--panel-radius)",
+        backdropFilter: "blur(10px)",
       }}>
-        {/* City selector */}
-        <div className="panel-header">AREA OF OPERATIONS</div>
+        {/* Location search */}
+        <div style={{
+          fontFamily: "var(--font-display)", fontSize: 8, letterSpacing: 3,
+          color: "var(--text-tertiary)", marginBottom: 8, textTransform: "uppercase",
+          borderBottom: "1px solid var(--border-subtle)", paddingBottom: 6,
+        }}>AREA OF OPERATIONS</div>
+
+        <div className="search-container" style={{ marginBottom: 10 }}>
+          <div style={{
+            position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)",
+            fontSize: 12, color: "var(--text-tertiary)", zIndex: 2, pointerEvents: "none",
+          }}>&#9906;</div>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => handleSearch(e.target.value)}
+            onFocus={() => searchResults.length > 0 && setShowSearchResults(true)}
+            onBlur={() => setTimeout(() => setShowSearchResults(false), 200)}
+            placeholder="SEARCH ANY LOCATION..."
+          />
+          {showSearchResults && (
+            <div className="search-results">
+              {searchResults.map((r, i) => (
+                <div key={i} onMouseDown={() => selectSearchResult(r)}>
+                  {r.display_name}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Preset cities */}
         <select
-          value={city}
-          onChange={(e) => setCity(e.target.value)}
-          className="select-tactical"
-          style={{ marginBottom: 16 }}
+          value={customCoords ? "" : city}
+          onChange={(e) => {
+            setCustomCoords(null);
+            setCity(e.target.value);
+            setSearchQuery("");
+          }}
+          style={{
+            width: "100%", marginBottom: 16,
+            background: "var(--bg-input)", border: "1px solid var(--border-subtle)",
+            borderRadius: 2, color: "var(--text-secondary)",
+            fontFamily: "var(--font-mono)", fontSize: 10,
+            padding: "6px 8px", outline: "none", letterSpacing: 1,
+            cursor: "pointer",
+          }}
         >
+          {customCoords && <option value="">CUSTOM LOCATION</option>}
           {Object.entries(cities).map(([id, cfg]) => (
             <option key={id} value={id}>{cfg.name.toUpperCase()}</option>
           ))}
         </select>
 
         {/* Stats */}
-        <div className="panel-header" style={{ marginTop: 4 }}>ASSET TRACKING</div>
+        <div style={{
+          fontFamily: "var(--font-display)", fontSize: 8, letterSpacing: 3,
+          color: "var(--text-tertiary)", marginBottom: 8, textTransform: "uppercase",
+          borderBottom: "1px solid var(--border-subtle)", paddingBottom: 6,
+        }}>ASSET TRACKING</div>
 
-        <div className="stat-row">
-          <span className="stat-label">Aircraft</span>
-          <span className="stat-value" style={{ color: "#00e5ff" }}>{stats.aircraft}</span>
-        </div>
-        <div className="stat-row">
-          <span className="stat-label">Vehicles</span>
-          <span className="stat-value" style={{ color: "#448aff" }}>{stats.vehicles}</span>
-        </div>
-        <div className="stat-row">
-          <span className="stat-label">Personnel</span>
-          <span className="stat-value" style={{ color: "#ffd600" }}>{stats.pedestrians}</span>
-        </div>
+        {[
+          { label: "Aircraft", value: stats.aircraft, opacity: 1 },
+          { label: "Vehicles", value: stats.vehicles, opacity: 0.8 },
+          { label: "Personnel", value: stats.pedestrians, opacity: 0.6 },
+        ].map(({ label, value, opacity }) => (
+          <div key={label} style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            padding: "5px 0", borderBottom: "1px solid rgba(255,255,255,0.02)",
+          }}>
+            <span style={{
+              fontFamily: "var(--font-display)", fontSize: 8, letterSpacing: 2,
+              color: "var(--text-tertiary)", textTransform: "uppercase",
+            }}>{label}</span>
+            <span style={{
+              fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 600,
+              color: `rgba(200,207,216,${opacity})`,
+            }}>{value}</span>
+          </div>
+        ))}
 
         {stats.anomalies > 0 && (
-          <div className="stat-row" style={{ borderBottom: "1px solid rgba(255,145,0,0.15)" }}>
-            <span className="stat-label" style={{ color: "#ff9100" }}>Anomalies</span>
-            <span className="stat-value" style={{ color: "#ff9100" }}>{stats.anomalies}</span>
+          <div style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            padding: "5px 0", borderBottom: "1px solid rgba(160,145,122,0.1)",
+          }}>
+            <span style={{
+              fontFamily: "var(--font-display)", fontSize: 8, letterSpacing: 2,
+              color: "#a0917a",
+            }}>ANOMALIES</span>
+            <span style={{
+              fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 600,
+              color: "#a0917a",
+            }}>{stats.anomalies}</span>
           </div>
         )}
+
         {stats.alerts > 0 && (
-          <div className="stat-row" style={{ borderBottom: "1px solid rgba(255,23,68,0.15)" }}>
-            <span className="stat-label" style={{ color: "#ff1744" }}>Alerts</span>
-            <span className="stat-value" style={{ color: "#ff1744" }}>{stats.alerts}</span>
+          <div style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            padding: "5px 0", borderBottom: "1px solid rgba(176,112,112,0.1)",
+          }}>
+            <span style={{
+              fontFamily: "var(--font-display)", fontSize: 8, letterSpacing: 2,
+              color: "#b07070",
+            }}>ALERTS</span>
+            <span style={{
+              fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 600,
+              color: "#b07070",
+            }}>{stats.alerts}</span>
           </div>
         )}
 
@@ -658,62 +808,109 @@ export default function LiveMap() {
           }}>Total tracked</span>
           <span style={{
             fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 700,
-            color: "#00e5ff", textShadow: "0 0 20px rgba(0,229,255,0.4)",
+            color: "#c8cfd8", textShadow: "0 0 12px rgba(200,207,216,0.15)",
           }}>{stats.total}</span>
         </div>
       </div>
 
       {/* ── Layer control panel ───────────────────────────────── */}
-      <div className="toggle-panel panel" style={{
-        position: "absolute", top: 380, left: 16,
+      <div style={{
+        position: "absolute", top: 420, left: 16,
         padding: 14, zIndex: 10, minWidth: 200,
         animation: "fade-in-up 0.8s ease-out",
+        background: "var(--bg-panel)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: "var(--panel-radius)",
+        backdropFilter: "blur(10px)",
       }}>
-        <div className="panel-header">LAYERS</div>
+        <div style={{
+          fontFamily: "var(--font-display)", fontSize: 8, letterSpacing: 3,
+          color: "var(--text-tertiary)", marginBottom: 10, textTransform: "uppercase",
+          borderBottom: "1px solid var(--border-subtle)", paddingBottom: 6,
+        }}>LAYERS</div>
 
-        <label className="toggle-switch">
-          <input type="checkbox" checked={showHeatmap} onChange={() => setShowHeatmap(!showHeatmap)} />
-          <span>HEAT SIGNATURE</span>
-        </label>
-        <label className="toggle-switch">
-          <input type="checkbox" checked={showGeofences} onChange={() => setShowGeofences(!showGeofences)} />
-          <span>GEOFENCE ZONES</span>
-        </label>
-        <label className="toggle-switch">
-          <input type="checkbox" checked={showSatellite} onChange={() => setShowSatellite(!showSatellite)} />
-          <span>SAT IMAGERY</span>
-        </label>
+        {[
+          { label: "HEAT SIGNATURE", checked: showHeatmap, setter: () => setShowHeatmap(!showHeatmap) },
+          { label: "GEOFENCE ZONES", checked: showGeofences, setter: () => setShowGeofences(!showGeofences) },
+          { label: "SAT IMAGERY", checked: showSatellite, setter: () => setShowSatellite(!showSatellite) },
+        ].map(({ label, checked, setter }) => (
+          <label key={label} style={{
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "5px 0", cursor: "pointer",
+            fontFamily: "var(--font-mono)", fontSize: 10,
+            color: checked ? "var(--text-primary)" : "var(--text-tertiary)",
+            letterSpacing: 1, transition: "color 0.2s",
+          }}>
+            <div style={{
+              width: 12, height: 12, borderRadius: 2,
+              border: `1px solid ${checked ? "rgba(200,207,216,0.3)" : "rgba(200,207,216,0.1)"}`,
+              background: checked ? "rgba(200,207,216,0.08)" : "transparent",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transition: "all 0.2s",
+            }}>
+              {checked && <div style={{ width: 6, height: 6, borderRadius: 1, background: "#c8cfd8" }} />}
+            </div>
+            <input type="checkbox" checked={checked} onChange={setter} style={{ display: "none" }} />
+            <span>{label}</span>
+          </label>
+        ))}
 
         <button
           onClick={() => setShowAlertPanel(!showAlertPanel)}
-          className={`btn-tactical ${alerts.length > 0 ? "btn-critical" : ""}`}
-          style={{ width: "100%", marginTop: 10 }}
+          style={{
+            width: "100%", marginTop: 10, padding: "6px 10px",
+            background: alerts.length > 0 ? "rgba(176,112,112,0.08)" : "var(--bg-input)",
+            border: `1px solid ${alerts.length > 0 ? "rgba(176,112,112,0.2)" : "var(--border-subtle)"}`,
+            borderRadius: 2, cursor: "pointer",
+            fontFamily: "var(--font-display)", fontSize: 8, letterSpacing: 2,
+            color: alerts.length > 0 ? "#b07070" : "var(--text-secondary)",
+            textTransform: "uppercase", transition: "all 0.2s",
+          }}
         >
           THREAT FEED {alerts.length > 0 && `[${alerts.length}]`}
         </button>
       </div>
 
       {/* ── Replay controls — bottom-center ───────────────────── */}
-      <div className="replay-panel panel" style={{
+      <div style={{
         position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)",
         padding: "8px 20px", display: "flex", alignItems: "center", gap: 12, zIndex: 10,
+        background: "var(--bg-panel)", border: "1px solid var(--border-subtle)",
+        borderRadius: "var(--panel-radius)", backdropFilter: "blur(10px)",
       }}>
         {!replayMode ? (
-          <button onClick={startReplay} className="btn-tactical">TEMPORAL REPLAY</button>
+          <button onClick={startReplay} style={{
+            background: "transparent", border: "1px solid var(--border-subtle)",
+            color: "var(--text-secondary)", fontFamily: "var(--font-display)",
+            fontSize: 8, letterSpacing: 2, padding: "5px 14px", cursor: "pointer",
+            borderRadius: 2, transition: "all 0.2s",
+          }}>TEMPORAL REPLAY</button>
         ) : (
           <>
-            <button onClick={() => replayStep(-1)} className="btn-tactical" disabled={replayIndex <= 0}>&#9664;</button>
+            <button onClick={() => replayStep(-1)} style={{
+              background: "transparent", border: "1px solid var(--border-subtle)",
+              color: "var(--text-secondary)", padding: "4px 10px", cursor: "pointer",
+              borderRadius: 2, fontSize: 12,
+            }} disabled={replayIndex <= 0}>&#9664;</button>
             <span style={{
-              fontFamily: "var(--font-mono)", fontSize: 11, color: "#00e5ff",
+              fontFamily: "var(--font-mono)", fontSize: 11, color: "#c8cfd8",
               minWidth: 80, textAlign: "center", letterSpacing: 1,
             }}>
               {replayIndex + 1} / {replaySnapshots.length}
             </span>
-            <button onClick={() => replayStep(1)} className="btn-tactical"
-              disabled={replayIndex >= replaySnapshots.length - 1}>&#9654;</button>
+            <button onClick={() => replayStep(1)} style={{
+              background: "transparent", border: "1px solid var(--border-subtle)",
+              color: "var(--text-secondary)", padding: "4px 10px", cursor: "pointer",
+              borderRadius: 2, fontSize: 12,
+            }} disabled={replayIndex >= replaySnapshots.length - 1}>&#9654;</button>
             <button
               onClick={() => { setReplayMode(false); setReplaySnapshots([]); }}
-              className="btn-tactical btn-critical"
+              style={{
+                background: "rgba(176,112,112,0.06)", border: "1px solid rgba(176,112,112,0.2)",
+                color: "#b07070", fontFamily: "var(--font-display)",
+                fontSize: 8, letterSpacing: 2, padding: "5px 14px", cursor: "pointer",
+                borderRadius: 2,
+              }}
             >
               EXIT
             </button>
@@ -723,15 +920,21 @@ export default function LiveMap() {
 
       {/* ── Weather intel — top-right ─────────────────────────── */}
       {weather && (
-        <div className="weather-panel panel" style={{
+        <div style={{
           position: "absolute", top: 56, right: 16,
           padding: 14, zIndex: 10, minWidth: 170,
           animation: "fade-in-up 0.7s ease-out",
+          background: "var(--bg-panel)", border: "1px solid var(--border-subtle)",
+          borderRadius: "var(--panel-radius)", backdropFilter: "blur(10px)",
         }}>
-          <div className="panel-header">METEOROLOGICAL</div>
+          <div style={{
+            fontFamily: "var(--font-display)", fontSize: 8, letterSpacing: 3,
+            color: "var(--text-tertiary)", marginBottom: 8, textTransform: "uppercase",
+            borderBottom: "1px solid var(--border-subtle)", paddingBottom: 6,
+          }}>METEOROLOGICAL</div>
           <div style={{
             fontFamily: "var(--font-mono)", fontSize: 28, fontWeight: 700,
-            color: "#00e5ff", textShadow: "0 0 25px rgba(0,229,255,0.3)",
+            color: "#c8cfd8", textShadow: "0 0 15px rgba(200,207,216,0.1)",
             marginBottom: 6, lineHeight: 1,
           }}>
             {weather.temp_c !== undefined ? `${weather.temp_c.toFixed(0)}°` : "—"}
@@ -744,10 +947,10 @@ export default function LiveMap() {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {[
-              { label: "WIND", value: `${weather.wind_speed?.toFixed(1) ?? "—"} m/s`, color: "#448aff" },
-              { label: "VIS", value: `${weather.visibility_km?.toFixed(0) ?? "—"} km`, color: "#39ff14" },
-              { label: "CLOUD", value: `${weather.clouds_pct ?? "—"}%`, color: "#7a8a9e" },
-            ].map(({ label, value, color }) => (
+              { label: "WIND", value: `${weather.wind_speed?.toFixed(1) ?? "—"} m/s` },
+              { label: "VIS", value: `${weather.visibility_km?.toFixed(0) ?? "—"} km` },
+              { label: "CLOUD", value: `${weather.clouds_pct ?? "—"}%` },
+            ].map(({ label, value }) => (
               <div key={label} style={{
                 display: "flex", justifyContent: "space-between", alignItems: "center",
                 fontFamily: "var(--font-mono)", fontSize: 10,
@@ -756,7 +959,7 @@ export default function LiveMap() {
                   fontFamily: "var(--font-display)", fontSize: 8, letterSpacing: 2,
                   color: "var(--text-tertiary)",
                 }}>{label}</span>
-                <span style={{ color, fontWeight: 500 }}>{value}</span>
+                <span style={{ color: "#8a929e", fontWeight: 500 }}>{value}</span>
               </div>
             ))}
           </div>
@@ -765,23 +968,31 @@ export default function LiveMap() {
 
       {/* ── Alert panel — right side ──────────────────────────── */}
       {showAlertPanel && (
-        <div className="alert-panel panel" style={{
+        <div style={{
           position: "absolute", top: weather ? 230 : 56, right: 16,
           padding: 14, zIndex: 20,
           maxHeight: "50vh", overflowY: "auto", width: 340,
           animation: "fade-in-up 0.4s ease-out",
-          borderColor: "rgba(255,23,68,0.2)",
+          background: "var(--bg-panel)",
+          border: "1px solid rgba(176,112,112,0.1)",
+          borderRadius: "var(--panel-radius)",
+          backdropFilter: "blur(10px)",
         }}>
           <div style={{
             display: "flex", justifyContent: "space-between", alignItems: "center",
-            marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid rgba(255,23,68,0.15)",
+            marginBottom: 10, paddingBottom: 8,
+            borderBottom: "1px solid rgba(200,207,216,0.04)",
           }}>
-            <div className="panel-header" style={{ borderBottom: "none", marginBottom: 0, paddingBottom: 0 }}>
-              THREAT INTELLIGENCE
-            </div>
-            <button onClick={() => setAlerts([])} className="btn-tactical" style={{ padding: "3px 8px", fontSize: 8 }}>
-              PURGE
-            </button>
+            <div style={{
+              fontFamily: "var(--font-display)", fontSize: 8, letterSpacing: 3,
+              color: "var(--text-tertiary)", textTransform: "uppercase",
+            }}>THREAT INTELLIGENCE</div>
+            <button onClick={() => setAlerts([])} style={{
+              background: "transparent", border: "1px solid var(--border-subtle)",
+              color: "var(--text-tertiary)", fontFamily: "var(--font-display)",
+              fontSize: 7, letterSpacing: 1, padding: "3px 8px", cursor: "pointer",
+              borderRadius: 2,
+            }}>PURGE</button>
           </div>
 
           {alerts.length === 0 ? (
@@ -794,11 +1005,17 @@ export default function LiveMap() {
           ) : (
             alerts.slice(0, 30).map((alert, i) => (
               <div key={i} style={{
-                padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.03)",
+                padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.02)",
                 display: "flex", gap: 8, alignItems: "flex-start",
                 animation: `data-stream 0.5s ease-out ${i * 0.05}s both`,
               }}>
-                <span className={`severity-badge ${severityClass(alert.severity)}`}>
+                <span style={{
+                  fontFamily: "var(--font-display)", fontSize: 7, letterSpacing: 1,
+                  padding: "2px 6px", borderRadius: 2, flexShrink: 0,
+                  background: `rgba(${alert.severity === "critical" ? "176,112,112" : alert.severity === "high" ? "160,145,122" : "138,146,158"},0.1)`,
+                  border: `1px solid rgba(${alert.severity === "critical" ? "176,112,112" : alert.severity === "high" ? "160,145,122" : "138,146,158"},0.2)`,
+                  color: severityColor(alert.severity),
+                }}>
                   {alert.severity?.toUpperCase() || "INFO"}
                 </span>
                 <span style={{
@@ -819,7 +1036,7 @@ export default function LiveMap() {
       {/* ── Bottom gradient fade ──────────────────────────────── */}
       <div style={{
         position: "absolute", bottom: 0, left: 0, right: 0, height: 60,
-        background: "linear-gradient(0deg, rgba(5,8,13,0.6) 0%, transparent 100%)",
+        background: "linear-gradient(0deg, rgba(4,5,6,0.6) 0%, transparent 100%)",
         pointerEvents: "none", zIndex: 5,
       }} />
     </div>
