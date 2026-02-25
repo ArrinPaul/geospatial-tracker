@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import mapboxgl from "mapbox-gl";
-import "mapbox-gl/dist/mapbox-gl.css";
+import maplibregl from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
 import { useWebSocket } from "../hooks/useWebSocket";
 import CameraPanel from "./CameraPanel";
-
-mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || "";
 
 const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8000/ws/live";
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
@@ -48,7 +46,7 @@ interface Alert {
 
 export default function LiveMap() {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<mapboxgl.Map | null>(null);
+  const map = useRef<maplibregl.Map | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [stats, setStats] = useState<Stats>({
     aircraft: 0, vehicles: 0, pedestrians: 0, anomalies: 0, alerts: 0, total: 0,
@@ -98,7 +96,7 @@ export default function LiveMap() {
     fetch(`${API_BASE}/api/geofences`)
       .then((r) => r.json())
       .then((geojson) => {
-        const src = map.current?.getSource("geofences") as mapboxgl.GeoJSONSource;
+        const src = map.current?.getSource("geofences") as maplibregl.GeoJSONSource;
         if (src) src.setData(geojson);
       })
       .catch(() => {});
@@ -110,7 +108,7 @@ export default function LiveMap() {
       if (replayMode) return; // Ignore live data during replay
 
       const geojson = data;
-      const source = map.current?.getSource("detections") as mapboxgl.GeoJSONSource;
+      const source = map.current?.getSource("detections") as maplibregl.GeoJSONSource;
       if (source) source.setData(geojson);
 
       const features = geojson.features || [];
@@ -136,7 +134,7 @@ export default function LiveMap() {
 
       // Update geofence overlay if included
       if (metadata.geofence_zones) {
-        const gfSrc = map.current?.getSource("geofences") as mapboxgl.GeoJSONSource;
+        const gfSrc = map.current?.getSource("geofences") as maplibregl.GeoJSONSource;
         if (gfSrc) gfSrc.setData(metadata.geofence_zones);
       }
     },
@@ -178,7 +176,7 @@ export default function LiveMap() {
       const res = await fetch(`${API_BASE}/api/history/snapshot/${id}`);
       const data = await res.json();
       if (data.geojson) {
-        const src = map.current?.getSource("detections") as mapboxgl.GeoJSONSource;
+          const src = map.current?.getSource("detections") as maplibregl.GeoJSONSource;
         if (src) src.setData(data.geojson);
       }
     } catch (e) {
@@ -248,15 +246,15 @@ export default function LiveMap() {
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
-    map.current = new mapboxgl.Map({
+    map.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: "mapbox://styles/mapbox/dark-v11",
+      style: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
       center: [-118.25, 34.05],
       zoom: 10,
       pitch: 45,
     });
 
-    map.current.addControl(new mapboxgl.NavigationControl(), "top-right");
+    map.current.addControl(new maplibregl.NavigationControl(), "top-right");
 
     map.current.on("load", () => {
       const m = map.current!;
@@ -406,7 +404,7 @@ export default function LiveMap() {
             .map(([k, v]) => `<b>${k}:</b> ${v}`)
             .join("<br/>");
 
-          new mapboxgl.Popup()
+          new maplibregl.Popup()
             .setLngLat(coords)
             .setHTML(`<div style="font-size:12px;max-width:250px">${html}</div>`)
             .addTo(m);

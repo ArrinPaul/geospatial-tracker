@@ -74,8 +74,8 @@ body {
     padding: 6px 10px !important;
   }
 
-  /* Mapbox nav control */
-  .mapboxgl-ctrl-top-right {
+  /* MapLibre nav control */
+  .maplibregl-ctrl-top-right {
     top: 200px !important;
   }
 }
