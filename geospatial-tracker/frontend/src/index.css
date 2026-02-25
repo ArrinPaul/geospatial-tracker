@@ -1,0 +1,110 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Geospatial Tracker — Global Styles & Mobile Responsiveness
+   ═══════════════════════════════════════════════════════════════════ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #000;
+  color: #fff;
+  overflow: hidden;
+}
+
+/* Scrollbar styling for alert panel */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 0, 0.3);
+  border-radius: 2px;
+}
+
+/* ─── Mobile Responsive ─────────────────────────────────────────── */
+
+/* Tablets (≤ 768px) */
+@media (max-width: 768px) {
+  .hud-panel {
+    top: 8px !important;
+    left: 8px !important;
+    right: 8px !important;
+    min-width: unset !important;
+    max-width: unset !important;
+    padding: 10px 14px !important;
+    font-size: 11px !important;
+  }
+
+  .toggle-panel {
+    top: unset !important;
+    bottom: 70px !important;
+    left: 8px !important;
+    padding: 8px 12px !important;
+  }
+
+  .weather-panel {
+    top: unset !important;
+    bottom: 70px !important;
+    right: 8px !important;
+    left: unset !important;
+    min-width: 120px !important;
+    padding: 8px 10px !important;
+    font-size: 10px !important;
+  }
+
+  .alert-panel {
+    top: unset !important;
+    bottom: 70px !important;
+    right: 8px !important;
+    left: 8px !important;
+    width: unset !important;
+    max-height: 40vh !important;
+  }
+
+  .replay-panel {
+    bottom: 10px !important;
+    padding: 6px 10px !important;
+  }
+
+  /* Mapbox nav control */
+  .mapboxgl-ctrl-top-right {
+    top: 200px !important;
+  }
+}
+
+/* Phones (≤ 480px) */
+@media (max-width: 480px) {
+  .hud-panel {
+    padding: 8px 10px !important;
+    font-size: 10px !important;
+    border-radius: 6px !important;
+  }
+
+  .toggle-panel {
+    bottom: 60px !important;
+    font-size: 10px !important;
+  }
+
+  .weather-panel {
+    bottom: 60px !important;
+    font-size: 9px !important;
+  }
+
+  .replay-panel {
+    font-size: 10px !important;
+    gap: 6px !important;
+  }
+
+  .alert-panel {
+    max-height: 35vh !important;
+    font-size: 10px !important;
+  }
+}

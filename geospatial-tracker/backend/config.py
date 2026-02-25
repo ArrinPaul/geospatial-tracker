@@ -18,6 +18,9 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")      # 💰 PAID — last resor
 MAPBOX_TOKEN = os.getenv("MAPBOX_TOKEN", "")
 SENTINEL_INSTANCE_ID = os.getenv("SENTINEL_INSTANCE_ID", "")
 
+# ─── Weather (OpenWeatherMap free tier: 1,000 calls/day) ─────────
+OPENWEATHERMAP_API_KEY = os.getenv("OPENWEATHERMAP_API_KEY", "")
+
 # ─── OpenSky (optional auth for higher rate limits) ──────────────
 OPENSKY_USERNAME = os.getenv("OPENSKY_USERNAME", "")
 OPENSKY_PASSWORD = os.getenv("OPENSKY_PASSWORD", "")
@@ -36,6 +39,46 @@ DEFAULT_BBOX = {
     "lomin": -118.8,
     "lamax": 34.4,
     "lomax": -117.6,
+}
+
+# ─── Multi-City Support ──────────────────────────────────────────
+CITY_CONFIGS = {
+    "los_angeles": {
+        "name": "Los Angeles",
+        "center": [-118.25, 34.05],
+        "zoom": 10,
+        "lat": 34.05,
+        "lon": -118.25,
+        "bbox": {"lamin": 33.5, "lomin": -118.8, "lamax": 34.4, "lomax": -117.6},
+        "satellite_bbox": [-118.8, 33.5, -117.6, 34.4],
+    },
+    "new_york": {
+        "name": "New York City",
+        "center": [-74.006, 40.7128],
+        "zoom": 10,
+        "lat": 40.7128,
+        "lon": -74.006,
+        "bbox": {"lamin": 40.4, "lomin": -74.3, "lamax": 41.0, "lomax": -73.6},
+        "satellite_bbox": [-74.3, 40.4, -73.6, 41.0],
+    },
+    "san_francisco": {
+        "name": "San Francisco",
+        "center": [-122.4194, 37.7749],
+        "zoom": 11,
+        "lat": 37.7749,
+        "lon": -122.4194,
+        "bbox": {"lamin": 37.5, "lomin": -122.6, "lamax": 37.9, "lomax": -122.2},
+        "satellite_bbox": [-122.6, 37.5, -122.2, 37.9],
+    },
+    "chicago": {
+        "name": "Chicago",
+        "center": [-87.6298, 41.8781],
+        "zoom": 10,
+        "lat": 41.8781,
+        "lon": -87.6298,
+        "bbox": {"lamin": 41.6, "lomin": -88.0, "lamax": 42.1, "lomax": -87.3},
+        "satellite_bbox": [-88.0, 41.6, -87.3, 42.1],
+    },
 }
 
 # ─── Vision Provider Priority Order ──────────────────────────────

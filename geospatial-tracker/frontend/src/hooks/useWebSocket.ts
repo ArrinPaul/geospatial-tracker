@@ -4,12 +4,14 @@ interface UseWebSocketOptions {
   url: string;
   onMessage: (data: any) => void;
   reconnectInterval?: number;
+  city?: string;
 }
 
 export function useWebSocket({
   url,
   onMessage,
   reconnectInterval = 3000,
+  city = "los_angeles",
 }: UseWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
@@ -32,11 +34,13 @@ export function useWebSocket({
     }
 
     try {
-      const ws = new WebSocket(url);
+      // Append city as query param
+      const wsUrl = `${url}?city=${encodeURIComponent(city)}`;
+      const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
         setConnected(true);
-        console.log("[WS] Connected to", url);
+        console.log("[WS] Connected to", wsUrl);
       };
 
       ws.onmessage = (event) => {
@@ -67,7 +71,14 @@ export function useWebSocket({
       console.error("[WS] Failed to create WebSocket:", e);
       reconnectTimer.current = setTimeout(connect, reconnectInterval);
     }
-  }, [url, reconnectInterval]);
+  }, [url, reconnectInterval, city]);
+
+  // Send a message to the server (e.g. city switch)
+  const sendMessage = useCallback((data: Record<string, unknown>) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(data));
+    }
+  }, []);
 
   useEffect(() => {
     connect();
@@ -81,5 +92,12 @@ export function useWebSocket({
     };
   }, [connect]);
 
-  return { connected, lastUpdate };
+  // When city changes, send switch message to server
+  useEffect(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ city }));
+    }
+  }, [city]);
+
+  return { connected, lastUpdate, sendMessage };
 }
