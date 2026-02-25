@@ -254,7 +254,7 @@ class VisionFallbackClient:
             "max_tokens": 4096,
         }
 
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30, verify=False) as client:
             resp = await client.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers=headers,
@@ -294,7 +294,7 @@ class VisionFallbackClient:
             "max_tokens": 4096,
         }
 
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30, verify=False) as client:
             resp = await client.post(
                 "https://api.together.xyz/v1/chat/completions",
                 headers=headers,
@@ -335,7 +335,7 @@ class VisionFallbackClient:
             "max_tokens": 4096,
         }
 
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30, verify=False) as client:
             resp = await client.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers=headers,

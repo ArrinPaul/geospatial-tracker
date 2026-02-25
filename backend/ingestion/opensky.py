@@ -16,12 +16,20 @@ async def fetch_aircraft(bbox: dict | None = None) -> list[AircraftPosition]:
     Rate limit: 5 req/10s (anonymous), 1 req/5s (authenticated)
     """
     params = bbox or DEFAULT_BBOX
+
+    # Try authenticated first, then anonymous if it fails
     auth = None
     if OPENSKY_USERNAME and OPENSKY_PASSWORD:
         auth = (OPENSKY_USERNAME, OPENSKY_PASSWORD)
 
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with httpx.AsyncClient(timeout=15, verify=False) as client:
         resp = await client.get(OPENSKY_URL, params=params, auth=auth)
+
+        # If auth fails (401), retry without auth (anonymous access)
+        if resp.status_code == 401 and auth is not None:
+            logger.warning("OpenSky auth failed (401), retrying anonymous...")
+            resp = await client.get(OPENSKY_URL, params=params)
+
         resp.raise_for_status()
         data = resp.json()
 

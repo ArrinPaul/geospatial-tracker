@@ -230,6 +230,11 @@ body {
   100% { opacity: 0; transform: translateY(4px); }
 }
 
+@keyframes spin-globe {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
 /* ─── Mobile Responsive ─────────────────────────────────────────── */
 @media (max-width: 768px) {
   .hud-panel {

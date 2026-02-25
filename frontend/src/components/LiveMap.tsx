@@ -118,7 +118,18 @@ export default function LiveMap() {
     fetch(`${API_BASE}/api/weather?${params}`)
       .then((r) => r.json())
       .then((data) => {
-        if (!data.error) setWeather(data);
+        if (!data.error) {
+          // Map backend field names to frontend interface
+          setWeather({
+            temp_c: data.temperature_c ?? data.temp_c,
+            description: data.weather_desc ?? data.description ?? "",
+            wind_speed: data.wind_speed_ms ?? data.wind_speed ?? 0,
+            wind_deg: data.wind_deg ?? 0,
+            visibility_km: (data.visibility_m ? data.visibility_m / 1000 : data.visibility_km) ?? 10,
+            clouds_pct: data.clouds_pct ?? 0,
+            icon: data.weather_icon ?? data.icon ?? "",
+          });
+        }
       })
       .catch(() => setWeather(null));
   }, [city, customCoords]);
@@ -330,15 +341,25 @@ export default function LiveMap() {
         name: "Dark Operations Globe",
         glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
         sources: {
-          "carto-dark": {
+          "carto-base": {
             type: "raster",
             tiles: [
-              "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-              "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-              "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+              "https://a.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}@2x.png",
+              "https://b.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}@2x.png",
+              "https://c.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}@2x.png",
             ],
             tileSize: 256,
             attribution: "&copy; CARTO &copy; OSM contributors",
+            maxzoom: 20,
+          },
+          "carto-labels": {
+            type: "raster",
+            tiles: [
+              "https://a.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png",
+              "https://b.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png",
+              "https://c.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png",
+            ],
+            tileSize: 256,
             maxzoom: 20,
           },
         },
@@ -349,15 +370,26 @@ export default function LiveMap() {
             paint: { "background-color": "#040506" },
           },
           {
-            id: "carto-tiles",
+            id: "carto-base-layer",
             type: "raster",
-            source: "carto-dark",
+            source: "carto-base",
             paint: {
               "raster-opacity": 0.9,
               "raster-saturation": -1,
               "raster-brightness-max": 0.55,
               "raster-brightness-min": 0.0,
               "raster-contrast": 0.2,
+            },
+          },
+          {
+            id: "carto-labels-layer",
+            type: "raster",
+            source: "carto-labels",
+            paint: {
+              "raster-opacity": 0.85,
+              "raster-saturation": -0.5,
+              "raster-brightness-max": 0.7,
+              "raster-brightness-min": 0.0,
             },
           },
         ],
@@ -1032,6 +1064,76 @@ export default function LiveMap() {
 
       {/* Camera panel */}
       <CameraPanel />
+
+      {/* ── Spinning Globe Widget — bottom-right ──────────────── */}
+      <div style={{
+        position: "absolute", bottom: 80, right: 16,
+        width: 130, height: 130, zIndex: 10,
+        animation: "fade-in-up 1s ease-out",
+        background: "var(--bg-panel)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: "var(--panel-radius)",
+        backdropFilter: "blur(10px)",
+        display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center",
+        overflow: "hidden", padding: 8,
+      }}>
+        <div style={{
+          fontFamily: "var(--font-display)", fontSize: 7, letterSpacing: 3,
+          color: "var(--text-tertiary)", marginBottom: 6, textTransform: "uppercase",
+        }}>ORBITAL VIEW</div>
+        <div style={{
+          width: 90, height: 90, borderRadius: "50%",
+          position: "relative", overflow: "hidden",
+          border: "1px solid rgba(200,207,216,0.12)",
+          boxShadow: "0 0 20px rgba(200,207,216,0.05), inset -8px -4px 12px rgba(0,0,0,0.6)",
+          background: "radial-gradient(circle at 35% 35%, #1a1c22 0%, #0c0e12 50%, #040506 100%)",
+        }}>
+          {/* Globe grid lines (meridians & parallels) */}
+          <svg viewBox="0 0 100 100" style={{
+            width: "100%", height: "100%",
+            position: "absolute", top: 0, left: 0,
+            animation: "spin-globe 20s linear infinite",
+          }}>
+            {/* Equator */}
+            <ellipse cx="50" cy="50" rx="48" ry="8" fill="none" stroke="rgba(200,207,216,0.12)" strokeWidth="0.5" />
+            {/* Tropics */}
+            <ellipse cx="50" cy="35" rx="44" ry="6" fill="none" stroke="rgba(200,207,216,0.07)" strokeWidth="0.4" />
+            <ellipse cx="50" cy="65" rx="44" ry="6" fill="none" stroke="rgba(200,207,216,0.07)" strokeWidth="0.4" />
+            {/* Meridians */}
+            <ellipse cx="50" cy="50" rx="12" ry="48" fill="none" stroke="rgba(200,207,216,0.1)" strokeWidth="0.4" />
+            <ellipse cx="50" cy="50" rx="28" ry="48" fill="none" stroke="rgba(200,207,216,0.1)" strokeWidth="0.4" />
+            <ellipse cx="50" cy="50" rx="42" ry="48" fill="none" stroke="rgba(200,207,216,0.08)" strokeWidth="0.4" />
+            {/* Simplified continents — abstract landmasses */}
+            <path d="M35,22 Q38,18 42,20 Q46,17 50,19 Q52,22 48,26 Q44,28 40,25 Z" fill="rgba(200,207,216,0.08)" stroke="rgba(200,207,216,0.15)" strokeWidth="0.3" />
+            <path d="M55,25 Q60,22 65,24 Q68,28 66,32 Q62,35 58,33 Q54,30 55,25 Z" fill="rgba(200,207,216,0.06)" stroke="rgba(200,207,216,0.12)" strokeWidth="0.3" />
+            <path d="M20,40 Q24,36 32,38 Q38,42 36,48 Q30,52 24,48 Q18,44 20,40 Z" fill="rgba(200,207,216,0.07)" stroke="rgba(200,207,216,0.13)" strokeWidth="0.3" />
+            <path d="M60,42 Q68,38 75,42 Q78,48 74,54 Q68,58 62,54 Q58,48 60,42 Z" fill="rgba(200,207,216,0.08)" stroke="rgba(200,207,216,0.14)" strokeWidth="0.3" />
+            <path d="M42,58 Q46,55 52,56 Q56,60 54,66 Q50,70 44,68 Q40,64 42,58 Z" fill="rgba(200,207,216,0.06)" stroke="rgba(200,207,216,0.11)" strokeWidth="0.3" />
+            <path d="M70,60 Q76,56 80,60 Q82,66 78,70 Q72,72 68,68 Q66,64 70,60 Z" fill="rgba(200,207,216,0.05)" stroke="rgba(200,207,216,0.1)" strokeWidth="0.3" />
+            {/* Blinking points — active monitoring sites */}
+            <circle cx="38" cy="24" r="1.2" fill="#c8cfd8" opacity="0.7">
+              <animate attributeName="opacity" values="0.7;0.2;0.7" dur="2s" repeatCount="indefinite" />
+            </circle>
+            <circle cx="65" cy="30" r="1" fill="#c8cfd8" opacity="0.5">
+              <animate attributeName="opacity" values="0.5;0.1;0.5" dur="2.5s" repeatCount="indefinite" />
+            </circle>
+            <circle cx="28" cy="45" r="1.2" fill="#c8cfd8" opacity="0.6">
+              <animate attributeName="opacity" values="0.6;0.15;0.6" dur="1.8s" repeatCount="indefinite" />
+            </circle>
+            <circle cx="72" cy="48" r="1" fill="#c8cfd8" opacity="0.4">
+              <animate attributeName="opacity" values="0.4;0.1;0.4" dur="3s" repeatCount="indefinite" />
+            </circle>
+          </svg>
+          {/* Highlight arc / shine */}
+          <div style={{
+            position: "absolute", top: 0, left: 0, width: "100%", height: "100%",
+            borderRadius: "50%",
+            background: "radial-gradient(circle at 30% 30%, rgba(200,207,216,0.06) 0%, transparent 60%)",
+            pointerEvents: "none",
+          }} />
+        </div>
+      </div>
 
       {/* ── Bottom gradient fade ──────────────────────────────── */}
       <div style={{
