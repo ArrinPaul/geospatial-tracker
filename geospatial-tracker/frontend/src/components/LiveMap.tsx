@@ -2,8 +2,6 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { useWebSocket } from "../hooks/useWebSocket";
-import PlaneLayer from "./PlaneLayer";
-import VehicleLayer from "./VehicleLayer";
 import CameraPanel from "./CameraPanel";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || "";

@@ -1,13 +1,9 @@
 import httpx
-import asyncio
-import sys
-import os
-
-# Add backend to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+import logging
 from models.schemas import AircraftPosition
-from config import DEFAULT_BBOX
+from config import DEFAULT_BBOX, OPENSKY_USERNAME, OPENSKY_PASSWORD
+
+logger = logging.getLogger(__name__)
 
 OPENSKY_URL = "https://opensky-network.org/api/states/all"
 
@@ -20,8 +16,12 @@ async def fetch_aircraft(bbox: dict | None = None) -> list[AircraftPosition]:
     Rate limit: 5 req/10s (anonymous), 1 req/5s (authenticated)
     """
     params = bbox or DEFAULT_BBOX
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(OPENSKY_URL, params=params)
+    auth = None
+    if OPENSKY_USERNAME and OPENSKY_PASSWORD:
+        auth = (OPENSKY_USERNAME, OPENSKY_PASSWORD)
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(OPENSKY_URL, params=params, auth=auth)
         resp.raise_for_status()
         data = resp.json()
 

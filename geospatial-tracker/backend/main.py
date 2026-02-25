@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
@@ -9,7 +10,27 @@ from config import DETECTION_CYCLE_INTERVAL
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Geospatial Tracker", version="1.0.0")
+connected_clients: list[WebSocket] = []
+_broadcast_task: asyncio.Task | None = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Modern lifespan handler — replaces deprecated on_event."""
+    global _broadcast_task
+    logger.info("Starting broadcast loop...")
+    _broadcast_task = asyncio.create_task(broadcast_loop())
+    yield
+    if _broadcast_task:
+        _broadcast_task.cancel()
+        try:
+            await _broadcast_task
+        except asyncio.CancelledError:
+            pass
+    logger.info("Broadcast loop stopped.")
+
+
+app = FastAPI(title="Geospatial Tracker", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,12 +40,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-connected_clients: list[WebSocket] = []
-
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "clients": len(connected_clients)}
+
+
+@app.get("/api/detections")
+async def get_detections():
+    """REST endpoint for initial data load (no WebSocket needed)."""
+    try:
+        geojson = await run_detection_cycle()
+        return geojson
+    except Exception as e:
+        logger.error(f"REST detection error: {e}")
+        return {"type": "FeatureCollection", "features": []}
 
 
 @app.websocket("/ws/live")
@@ -35,8 +65,9 @@ async def websocket_endpoint(ws: WebSocket):
     try:
         while True:
             await ws.receive_text()  # keep-alive
-    except WebSocketDisconnect:
-        connected_clients.remove(ws)
+    except (WebSocketDisconnect, Exception):
+        if ws in connected_clients:
+            connected_clients.remove(ws)
         logger.info(f"Client disconnected. Total: {len(connected_clients)}")
 
 
@@ -61,9 +92,3 @@ async def broadcast_loop():
             logger.error(f"Detection cycle error: {e}")
 
         await asyncio.sleep(DETECTION_CYCLE_INTERVAL)
-
-
-@app.on_event("startup")
-async def startup():
-    logger.info("Starting broadcast loop...")
-    asyncio.create_task(broadcast_loop())
