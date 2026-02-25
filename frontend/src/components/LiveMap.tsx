@@ -42,6 +42,14 @@ interface Alert {
   zone_name?: string;
 }
 
+/* ─── Utility: formatted time ────────────────────────────────── */
+const clockFormat = () => {
+  const d = new Date();
+  const utc = d.toISOString().slice(11, 19);
+  const local = d.toLocaleTimeString("en-US", { hour12: false });
+  return { utc, local, date: d.toISOString().slice(0, 10) };
+};
+
 /* ─── Component ──────────────────────────────────────────────── */
 
 export default function LiveMap() {
@@ -51,6 +59,7 @@ export default function LiveMap() {
   const [stats, setStats] = useState<Stats>({
     aircraft: 0, vehicles: 0, pedestrians: 0, anomalies: 0, alerts: 0, total: 0,
   });
+  const [clock, setClock] = useState(clockFormat());
 
   // Feature states
   const [city, setCity] = useState("los_angeles");
@@ -64,6 +73,12 @@ export default function LiveMap() {
   const [replayMode, setReplayMode] = useState(false);
   const [replaySnapshots, setReplaySnapshots] = useState<any[]>([]);
   const [replayIndex, setReplayIndex] = useState(0);
+
+  /* ─── Clock tick ───────────────────────────────────────────── */
+  useEffect(() => {
+    const iv = setInterval(() => setClock(clockFormat()), 1000);
+    return () => clearInterval(iv);
+  }, []);
 
   /* ─── Fetch cities list on mount ───────────────────────────── */
   useEffect(() => {
@@ -105,8 +120,7 @@ export default function LiveMap() {
   /* ─── WebSocket message handler ────────────────────────────── */
   const handleMessage = useCallback(
     (data: any) => {
-      if (replayMode) return; // Ignore live data during replay
-
+      if (replayMode) return;
       const geojson = data;
       const source = map.current?.getSource("detections") as maplibregl.GeoJSONSource;
       if (source) source.setData(geojson);
@@ -123,7 +137,6 @@ export default function LiveMap() {
         total: features.length,
       });
 
-      // Merge geofence + anomaly alerts
       const newAlerts: Alert[] = [
         ...(metadata.geofence_alerts || []),
         ...(metadata.anomalies || []),
@@ -132,7 +145,6 @@ export default function LiveMap() {
         setAlerts((prev) => [...newAlerts, ...prev].slice(0, 50));
       }
 
-      // Update geofence overlay if included
       if (metadata.geofence_zones) {
         const gfSrc = map.current?.getSource("geofences") as maplibregl.GeoJSONSource;
         if (gfSrc) gfSrc.setData(metadata.geofence_zones);
@@ -151,7 +163,7 @@ export default function LiveMap() {
   useEffect(() => {
     if (!map.current || !cities[city]) return;
     const cfg = cities[city];
-    map.current.flyTo({ center: cfg.center, zoom: cfg.zoom, duration: 2000 });
+    map.current.flyTo({ center: cfg.center, zoom: cfg.zoom, duration: 2500, essential: true });
   }, [city, cities]);
 
   /* ─── Historical replay ────────────────────────────────────── */
@@ -163,7 +175,6 @@ export default function LiveMap() {
         setReplaySnapshots(data.snapshots);
         setReplayIndex(0);
         setReplayMode(true);
-        // Load first snapshot
         loadReplaySnapshot(data.snapshots[0].id);
       }
     } catch (e) {
@@ -176,7 +187,7 @@ export default function LiveMap() {
       const res = await fetch(`${API_BASE}/api/history/snapshot/${id}`);
       const data = await res.json();
       if (data.geojson) {
-          const src = map.current?.getSource("detections") as maplibregl.GeoJSONSource;
+        const src = map.current?.getSource("detections") as maplibregl.GeoJSONSource;
         if (src) src.setData(data.geojson);
       }
     } catch (e) {
@@ -197,7 +208,6 @@ export default function LiveMap() {
     if (m.getLayer("heatmap-layer")) {
       m.setLayoutProperty("heatmap-layer", "visibility", showHeatmap ? "visible" : "none");
     }
-    // Toggle point layers inverse
     for (const layerId of ["aircraft-layer", "vehicle-layer", "pedestrian-layer"]) {
       if (m.getLayer(layerId)) {
         m.setLayoutProperty(layerId, "visibility", showHeatmap ? "none" : "visible");
@@ -230,7 +240,7 @@ export default function LiveMap() {
         });
         m.addLayer(
           { id: "satellite-layer", type: "raster", source: "satellite-tiles", paint: { "raster-opacity": 0.7 } },
-          "aircraft-layer", // Insert below data layers
+          "aircraft-layer",
         );
       } else if (m.getLayer("satellite-layer")) {
         m.setLayoutProperty("satellite-layer", "visibility", "visible");
@@ -242,22 +252,76 @@ export default function LiveMap() {
     }
   }, [showSatellite, mapLoaded]);
 
-  /* ─── Map initialization ───────────────────────────────────── */
+  /* ─── Map initialization — GLOBE PROJECTION ────────────────── */
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
     map.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+      style: {
+        version: 8,
+        name: "Tactical Dark Globe",
+        glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+        sources: {
+          "carto-dark": {
+            type: "raster",
+            tiles: [
+              "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+              "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+              "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+            ],
+            tileSize: 256,
+            attribution: "&copy; CARTO &copy; OSM contributors",
+            maxzoom: 19,
+          },
+        },
+        layers: [
+          {
+            id: "background",
+            type: "background",
+            paint: { "background-color": "#050a12" },
+          },
+          {
+            id: "carto-tiles",
+            type: "raster",
+            source: "carto-dark",
+            paint: {
+              "raster-opacity": 0.85,
+              "raster-saturation": -0.3,
+              "raster-brightness-max": 0.7,
+              "raster-contrast": 0.15,
+            },
+          },
+        ],
+      },
       center: [-118.25, 34.05],
-      zoom: 10,
-      pitch: 45,
+      zoom: 3,
+      pitch: 0,
+      maxPitch: 85,
+      maplibreLogo: false,
+      attributionControl: false,
     });
 
-    map.current.addControl(new maplibregl.NavigationControl(), "top-right");
-
+    // Enable globe projection
     map.current.on("load", () => {
       const m = map.current!;
+
+      // Set globe projection for the sphere effect
+      (m as any).setProjection?.({ type: "globe" });
+
+      // Add atmosphere / sky for the globe
+      try {
+        m.setSky?.({
+          "sky-color": "#050a12",
+          "horizon-color": "#0a1628",
+          "fog-color": "#050a12",
+          "sky-horizon-blend": 0.5,
+          "horizon-fog-blend": 0.8,
+          "fog-ground-blend": 0.9,
+        } as any);
+      } catch {
+        // sky not supported in all versions
+      }
 
       // ── Detection source ─────────────────────────────────────
       m.addSource("detections", {
@@ -283,10 +347,11 @@ export default function LiveMap() {
           "heatmap-color": [
             "interpolate", ["linear"], ["heatmap-density"],
             0, "rgba(0,0,0,0)",
-            0.2, "rgba(0,255,128,0.3)",
-            0.4, "rgba(0,200,255,0.5)",
-            0.6, "rgba(255,200,0,0.7)",
-            0.8, "rgba(255,100,0,0.85)",
+            0.15, "rgba(0,229,255,0.15)",
+            0.3, "rgba(0,229,255,0.35)",
+            0.5, "rgba(0,180,255,0.55)",
+            0.7, "rgba(255,145,0,0.75)",
+            0.85, "rgba(255,23,68,0.85)",
             1, "rgba(255,0,50,1)",
           ],
           "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 2, 15, 30],
@@ -302,9 +367,9 @@ export default function LiveMap() {
         paint: {
           "fill-color": [
             "match", ["get", "severity"],
-            "critical", "rgba(255,0,0,0.12)",
-            "high", "rgba(255,165,0,0.10)",
-            "rgba(255,255,0,0.08)",
+            "critical", "rgba(255,23,68,0.08)",
+            "high", "rgba(255,145,0,0.06)",
+            "rgba(0,229,255,0.04)",
           ],
           "fill-opacity": 0.6,
         },
@@ -317,13 +382,13 @@ export default function LiveMap() {
         paint: {
           "line-color": [
             "match", ["get", "severity"],
-            "critical", "#ff0000",
-            "high", "#ff8800",
-            "#ffcc00",
+            "critical", "#ff1744",
+            "high", "#ff9100",
+            "#00e5ff",
           ],
-          "line-width": 2,
-          "line-dasharray": [4, 2],
-          "line-opacity": 0.7,
+          "line-width": 1.5,
+          "line-dasharray": [6, 3],
+          "line-opacity": 0.5,
         },
       });
 
@@ -333,34 +398,55 @@ export default function LiveMap() {
         source: "geofences",
         layout: {
           "text-field": ["get", "name"],
-          "text-size": 11,
+          "text-size": 10,
           "text-anchor": "center",
           "text-allow-overlap": false,
+          "text-font": ["Open Sans Regular"],
         },
         paint: {
-          "text-color": "#ff8800",
-          "text-halo-color": "#000000",
+          "text-color": "#ff9100",
+          "text-halo-color": "rgba(0,0,0,0.8)",
           "text-halo-width": 1.5,
         },
       });
 
-      // ── Aircraft layer ───────────────────────────────────────
+      // ── Aircraft layer — pulsing circles ─────────────────────
+      m.addLayer({
+        id: "aircraft-glow",
+        type: "circle",
+        source: "detections",
+        filter: ["==", ["get", "category"], "aircraft"],
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 8, 14, 20],
+          "circle-color": "transparent",
+          "circle-stroke-width": 1,
+          "circle-stroke-color": [
+            "interpolate", ["linear"], ["coalesce", ["get", "altitude"], 0],
+            0, "rgba(0,229,255,0.3)",
+            5000, "rgba(255,145,0,0.3)",
+            12000, "rgba(255,23,68,0.3)",
+          ],
+          "circle-blur": 1,
+          "circle-opacity": 0.6,
+        },
+      });
+
       m.addLayer({
         id: "aircraft-layer",
         type: "circle",
         source: "detections",
         filter: ["==", ["get", "category"], "aircraft"],
         paint: {
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 5, 14, 12],
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 3, 14, 8],
           "circle-color": [
             "interpolate", ["linear"], ["coalesce", ["get", "altitude"], 0],
-            0, "#00ff88",
-            5000, "#ffaa00",
-            12000, "#ff0044",
+            0, "#00e5ff",
+            5000, "#ff9100",
+            12000, "#ff1744",
           ],
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#ffffff",
-          "circle-opacity": 0.9,
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": "rgba(255,255,255,0.6)",
+          "circle-opacity": 0.95,
         },
       });
 
@@ -371,11 +457,11 @@ export default function LiveMap() {
         source: "detections",
         filter: ["==", ["get", "category"], "vehicles"],
         paint: {
-          "circle-radius": 4,
-          "circle-color": "#00d4ff",
-          "circle-opacity": 0.8,
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 3, 14, 6],
+          "circle-color": "#448aff",
+          "circle-opacity": 0.85,
           "circle-stroke-width": 1,
-          "circle-stroke-color": "#006688",
+          "circle-stroke-color": "rgba(68,138,255,0.4)",
         },
       });
 
@@ -386,9 +472,11 @@ export default function LiveMap() {
         source: "detections",
         filter: ["==", ["get", "category"], "pedestrians"],
         paint: {
-          "circle-radius": 3,
-          "circle-color": "#ffee00",
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 2, 14, 5],
+          "circle-color": "#ffd600",
           "circle-opacity": 0.7,
+          "circle-stroke-width": 0.5,
+          "circle-stroke-color": "rgba(255,214,0,0.3)",
         },
       });
 
@@ -399,23 +487,31 @@ export default function LiveMap() {
           const props = e.features[0].properties || {};
           const coords = (e.features[0].geometry as any).coordinates.slice();
 
-          const html = Object.entries(props)
+          const rows = Object.entries(props)
             .filter(([k]) => !["source_model", "bounding_box"].includes(k))
-            .map(([k, v]) => `<b>${k}:</b> ${v}`)
-            .join("<br/>");
+            .map(([k, v]) => `<tr><td style="color:#7a8a9e;padding:2px 8px 2px 0;font-size:9px;text-transform:uppercase;letter-spacing:1px;font-family:'Orbitron',sans-serif">${k}</td><td style="color:#e0e6ed;padding:2px 0">${v}</td></tr>`)
+            .join("");
 
-          new maplibregl.Popup()
+          new maplibregl.Popup({ offset: 10, closeButton: true, maxWidth: "300px" })
             .setLngLat(coords)
-            .setHTML(`<div style="font-size:12px;max-width:250px">${html}</div>`)
+            .setHTML(`<table style="border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:11px">${rows}</table>`)
             .addTo(m);
         });
 
-        m.on("mouseenter", layerId, () => { m.getCanvas().style.cursor = "pointer"; });
+        m.on("mouseenter", layerId, () => { m.getCanvas().style.cursor = "crosshair"; });
         m.on("mouseleave", layerId, () => { m.getCanvas().style.cursor = ""; });
       }
 
       setMapLoaded(true);
+
+      // Animate to the target city after a beat
+      setTimeout(() => {
+        m.flyTo({ center: [-118.25, 34.05], zoom: 10, pitch: 45, bearing: -15, duration: 3000 });
+      }, 800);
     });
+
+    map.current.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true }), "bottom-right");
+    map.current.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
     return () => {
       map.current?.remove();
@@ -425,181 +521,292 @@ export default function LiveMap() {
 
   /* ─── Severity color helper ────────────────────────────────── */
   const severityColor = (s: string) =>
-    s === "critical" ? "#ff3344" : s === "high" ? "#ff8800" : s === "warning" ? "#ffcc00" : "#88aaff";
+    s === "critical" ? "#ff1744" : s === "high" ? "#ff9100" : s === "warning" ? "#ffd600" : "#448aff";
+
+  const severityClass = (s: string) =>
+    s === "critical" ? "severity-critical" : s === "high" ? "severity-high" : s === "warning" ? "severity-warning" : "severity-info";
 
   /* ─── Render ───────────────────────────────────────────────── */
   return (
-    <div style={{ position: "relative", width: "100vw", height: "100vh", overflow: "hidden" }}>
+    <div style={{ position: "relative", width: "100vw", height: "100vh", overflow: "hidden", background: "#050a12" }}>
+      {/* Scanline overlay */}
+      <div className="scanline-overlay" />
+
+      {/* Map */}
       <div ref={mapContainer} style={{ width: "100%", height: "100%" }} />
 
-      {/* ── HUD — top-left ────────────────────────────────────── */}
-      <div className="hud-panel" style={{
-        position: "absolute", top: 16, left: 16,
-        background: "rgba(0,0,0,0.88)", color: "#0f0",
-        padding: "16px 20px", borderRadius: 10,
-        fontFamily: "'Courier New', monospace", fontSize: 13,
-        border: "1px solid rgba(0,255,0,0.3)",
-        backdropFilter: "blur(10px)", minWidth: 240, maxWidth: 300, zIndex: 10,
+      {/* ── Top bar — system header ───────────────────────────── */}
+      <div style={{
+        position: "absolute", top: 0, left: 0, right: 0, height: 40,
+        background: "linear-gradient(180deg, rgba(5,8,13,0.95) 0%, rgba(5,8,13,0.7) 80%, transparent 100%)",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "0 20px", zIndex: 20, borderBottom: "1px solid rgba(0,229,255,0.06)",
       }}>
-        <div style={{ fontSize: 10, opacity: 0.5, marginBottom: 8, letterSpacing: 2 }}>
-          GEOSPATIAL TRACKER v2.0
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {/* Logo / radar icon */}
+          <div style={{
+            width: 24, height: 24, borderRadius: "50%",
+            border: "1.5px solid rgba(0,229,255,0.4)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            position: "relative", overflow: "hidden",
+          }}>
+            <div style={{
+              width: 4, height: 4, borderRadius: "50%",
+              background: "#00e5ff", boxShadow: "0 0 8px rgba(0,229,255,0.8)",
+            }} />
+            <div style={{
+              position: "absolute", top: "50%", left: "50%", width: "50%", height: 1,
+              background: "rgba(0,229,255,0.6)", transformOrigin: "left center",
+              animation: "sweep 3s linear infinite",
+            }} />
+          </div>
+          <span style={{
+            fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 700,
+            letterSpacing: 4, color: "#00e5ff",
+            textShadow: "0 0 20px rgba(0,229,255,0.3)",
+          }}>
+            GEOINT PLATFORM
+          </span>
+          <span style={{
+            fontFamily: "var(--font-mono)", fontSize: 9, color: "rgba(122,138,158,0.6)",
+            letterSpacing: 1, marginLeft: 4,
+          }}>
+            v3.0 TACTICAL
+          </span>
         </div>
 
-        {/* City selector */}
-        <select
-          value={city}
-          onChange={(e) => setCity(e.target.value)}
-          style={{
-            width: "100%", marginBottom: 10, padding: "6px 8px",
-            background: "#111", color: "#0f0", border: "1px solid rgba(0,255,0,0.3)",
-            borderRadius: 4, fontFamily: "inherit", fontSize: 12, cursor: "pointer",
-          }}
-        >
-          {Object.entries(cities).map(([id, cfg]) => (
-            <option key={id} value={id}>{cfg.name}</option>
-          ))}
-        </select>
+        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+          {/* Connection status */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span className={`status-dot ${connected ? "live" : "offline"}`} />
+            <span style={{
+              fontFamily: "var(--font-mono)", fontSize: 10,
+              color: connected ? "#39ff14" : "#ff1744",
+              letterSpacing: 1,
+            }}>
+              {replayMode ? "REPLAY" : connected ? "LIVE FEED" : "OFFLINE"}
+            </span>
+          </div>
 
-        <div style={{ marginBottom: 3 }}>✈ AIRCRAFT: {stats.aircraft}</div>
-        <div style={{ marginBottom: 3, color: "#00d4ff" }}>🚗 VEHICLES: {stats.vehicles}</div>
-        <div style={{ marginBottom: 3, color: "#ffee00" }}>🚶 PEDESTRIANS: {stats.pedestrians}</div>
-        {stats.anomalies > 0 && (
-          <div style={{ marginBottom: 3, color: "#ff8800" }}>⚠ ANOMALIES: {stats.anomalies}</div>
-        )}
-        {stats.alerts > 0 && (
-          <div style={{ marginBottom: 3, color: "#ff3344" }}>🚨 ALERTS: {stats.alerts}</div>
-        )}
-
-        <div style={{ borderTop: "1px solid rgba(0,255,0,0.2)", paddingTop: 8, marginTop: 8 }}>
-          <div style={{ fontSize: 11, color: "#888" }}>TOTAL: {stats.total}</div>
-          <div style={{ fontSize: 10, marginTop: 4, color: connected ? "#0f0" : "#f44" }}>
-            {replayMode ? "⏪ REPLAY MODE" : connected ? "● LIVE" : "○ DISCONNECTED"}
-            {" • "}
-            {lastUpdate ? lastUpdate.toLocaleTimeString() : "Waiting..."}
+          {/* Clock */}
+          <div style={{
+            fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-secondary)",
+            display: "flex", gap: 12, letterSpacing: 0.5,
+          }}>
+            <span>{clock.date}</span>
+            <span style={{ color: "#00e5ff" }}>{clock.utc}Z</span>
           </div>
         </div>
       </div>
 
-      {/* ── Layer toggles — top-left below HUD ────────────────── */}
-      <div className="toggle-panel" style={{
-        position: "absolute", top: 320, left: 16,
-        background: "rgba(0,0,0,0.85)", color: "#ccc",
-        padding: "12px 16px", borderRadius: 8,
-        fontFamily: "'Courier New', monospace", fontSize: 11,
-        border: "1px solid rgba(0,255,0,0.2)",
-        backdropFilter: "blur(10px)", zIndex: 10,
+      {/* ── Left panel — Command & Control ────────────────────── */}
+      <div className="hud-panel panel corner-brackets" style={{
+        position: "absolute", top: 56, left: 16,
+        padding: 16, minWidth: 260, maxWidth: 280, zIndex: 10,
+        animation: "fade-in-up 0.6s ease-out",
       }}>
-        <div style={{ fontSize: 10, opacity: 0.5, marginBottom: 8, letterSpacing: 1 }}>LAYERS</div>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, cursor: "pointer" }}>
+        {/* City selector */}
+        <div className="panel-header">AREA OF OPERATIONS</div>
+        <select
+          value={city}
+          onChange={(e) => setCity(e.target.value)}
+          className="select-tactical"
+          style={{ marginBottom: 16 }}
+        >
+          {Object.entries(cities).map(([id, cfg]) => (
+            <option key={id} value={id}>{cfg.name.toUpperCase()}</option>
+          ))}
+        </select>
+
+        {/* Stats */}
+        <div className="panel-header" style={{ marginTop: 4 }}>ASSET TRACKING</div>
+
+        <div className="stat-row">
+          <span className="stat-label">Aircraft</span>
+          <span className="stat-value" style={{ color: "#00e5ff" }}>{stats.aircraft}</span>
+        </div>
+        <div className="stat-row">
+          <span className="stat-label">Vehicles</span>
+          <span className="stat-value" style={{ color: "#448aff" }}>{stats.vehicles}</span>
+        </div>
+        <div className="stat-row">
+          <span className="stat-label">Personnel</span>
+          <span className="stat-value" style={{ color: "#ffd600" }}>{stats.pedestrians}</span>
+        </div>
+
+        {stats.anomalies > 0 && (
+          <div className="stat-row" style={{ borderBottom: "1px solid rgba(255,145,0,0.15)" }}>
+            <span className="stat-label" style={{ color: "#ff9100" }}>Anomalies</span>
+            <span className="stat-value" style={{ color: "#ff9100" }}>{stats.anomalies}</span>
+          </div>
+        )}
+        {stats.alerts > 0 && (
+          <div className="stat-row" style={{ borderBottom: "1px solid rgba(255,23,68,0.15)" }}>
+            <span className="stat-label" style={{ color: "#ff1744" }}>Alerts</span>
+            <span className="stat-value" style={{ color: "#ff1744" }}>{stats.alerts}</span>
+          </div>
+        )}
+
+        <div style={{
+          marginTop: 12, paddingTop: 10,
+          borderTop: "1px solid var(--border-subtle)",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+        }}>
+          <span style={{
+            fontFamily: "var(--font-display)", fontSize: 8, letterSpacing: 2,
+            color: "var(--text-tertiary)", textTransform: "uppercase",
+          }}>Total tracked</span>
+          <span style={{
+            fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 700,
+            color: "#00e5ff", textShadow: "0 0 20px rgba(0,229,255,0.4)",
+          }}>{stats.total}</span>
+        </div>
+      </div>
+
+      {/* ── Layer control panel ───────────────────────────────── */}
+      <div className="toggle-panel panel" style={{
+        position: "absolute", top: 380, left: 16,
+        padding: 14, zIndex: 10, minWidth: 200,
+        animation: "fade-in-up 0.8s ease-out",
+      }}>
+        <div className="panel-header">LAYERS</div>
+
+        <label className="toggle-switch">
           <input type="checkbox" checked={showHeatmap} onChange={() => setShowHeatmap(!showHeatmap)} />
-          <span>🔥 Heatmap</span>
+          <span>HEAT SIGNATURE</span>
         </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, cursor: "pointer" }}>
+        <label className="toggle-switch">
           <input type="checkbox" checked={showGeofences} onChange={() => setShowGeofences(!showGeofences)} />
-          <span>🛡 Geofences</span>
+          <span>GEOFENCE ZONES</span>
         </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, cursor: "pointer" }}>
+        <label className="toggle-switch">
           <input type="checkbox" checked={showSatellite} onChange={() => setShowSatellite(!showSatellite)} />
-          <span>🛰 Satellite</span>
+          <span>SAT IMAGERY</span>
         </label>
+
         <button
           onClick={() => setShowAlertPanel(!showAlertPanel)}
-          style={{
-            width: "100%", marginTop: 4, padding: "4px 8px",
-            background: alerts.length > 0 ? "rgba(255,60,0,0.2)" : "rgba(255,255,255,0.05)",
-            color: alerts.length > 0 ? "#ff8800" : "#888",
-            border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4,
-            cursor: "pointer", fontFamily: "inherit", fontSize: 10,
-          }}
+          className={`btn-tactical ${alerts.length > 0 ? "btn-critical" : ""}`}
+          style={{ width: "100%", marginTop: 10 }}
         >
-          🔔 Alerts {alerts.length > 0 && `(${alerts.length})`}
+          THREAT FEED {alerts.length > 0 && `[${alerts.length}]`}
         </button>
       </div>
 
       {/* ── Replay controls — bottom-center ───────────────────── */}
-      <div className="replay-panel" style={{
-        position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)",
-        background: "rgba(0,0,0,0.88)", color: "#ccc",
-        padding: "8px 16px", borderRadius: 8,
-        fontFamily: "'Courier New', monospace", fontSize: 11,
-        border: "1px solid rgba(0,255,0,0.2)",
-        backdropFilter: "blur(10px)", display: "flex", alignItems: "center", gap: 10, zIndex: 10,
+      <div className="replay-panel panel" style={{
+        position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)",
+        padding: "8px 20px", display: "flex", alignItems: "center", gap: 12, zIndex: 10,
       }}>
         {!replayMode ? (
-          <button onClick={startReplay} style={btnStyle}>⏮ REPLAY</button>
+          <button onClick={startReplay} className="btn-tactical">TEMPORAL REPLAY</button>
         ) : (
           <>
-            <button onClick={() => replayStep(-1)} style={btnStyle} disabled={replayIndex <= 0}>◀</button>
-            <span style={{ color: "#0f0", minWidth: 80, textAlign: "center" }}>
+            <button onClick={() => replayStep(-1)} className="btn-tactical" disabled={replayIndex <= 0}>&#9664;</button>
+            <span style={{
+              fontFamily: "var(--font-mono)", fontSize: 11, color: "#00e5ff",
+              minWidth: 80, textAlign: "center", letterSpacing: 1,
+            }}>
               {replayIndex + 1} / {replaySnapshots.length}
             </span>
-            <button onClick={() => replayStep(1)} style={btnStyle}
-              disabled={replayIndex >= replaySnapshots.length - 1}>▶</button>
-            <button onClick={() => { setReplayMode(false); setReplaySnapshots([]); }} style={btnStyle}>
-              ⏹ LIVE
+            <button onClick={() => replayStep(1)} className="btn-tactical"
+              disabled={replayIndex >= replaySnapshots.length - 1}>&#9654;</button>
+            <button
+              onClick={() => { setReplayMode(false); setReplaySnapshots([]); }}
+              className="btn-tactical btn-critical"
+            >
+              EXIT
             </button>
           </>
         )}
       </div>
 
-      {/* ── Weather widget — top-right ────────────────────────── */}
+      {/* ── Weather intel — top-right ─────────────────────────── */}
       {weather && (
-        <div className="weather-panel" style={{
-          position: "absolute", top: 60, right: 60,
-          background: "rgba(0,0,0,0.85)", color: "#ccc",
-          padding: "10px 14px", borderRadius: 8,
-          fontFamily: "'Courier New', monospace", fontSize: 11,
-          border: "1px solid rgba(0,200,255,0.3)",
-          backdropFilter: "blur(10px)", zIndex: 10, minWidth: 150,
+        <div className="weather-panel panel" style={{
+          position: "absolute", top: 56, right: 16,
+          padding: 14, zIndex: 10, minWidth: 170,
+          animation: "fade-in-up 0.7s ease-out",
         }}>
-          <div style={{ fontSize: 10, opacity: 0.5, marginBottom: 6, letterSpacing: 1 }}>WEATHER</div>
-          <div style={{ fontSize: 16, marginBottom: 4 }}>
-            {weather.temp_c !== undefined ? `${weather.temp_c.toFixed(0)}°C` : "—"}
+          <div className="panel-header">METEOROLOGICAL</div>
+          <div style={{
+            fontFamily: "var(--font-mono)", fontSize: 28, fontWeight: 700,
+            color: "#00e5ff", textShadow: "0 0 25px rgba(0,229,255,0.3)",
+            marginBottom: 6, lineHeight: 1,
+          }}>
+            {weather.temp_c !== undefined ? `${weather.temp_c.toFixed(0)}°` : "—"}
           </div>
-          <div style={{ textTransform: "capitalize", marginBottom: 3 }}>{weather.description || "—"}</div>
-          <div>💨 {weather.wind_speed?.toFixed(1) ?? "—"} m/s</div>
-          <div>👁 {weather.visibility_km?.toFixed(0) ?? "—"} km</div>
-          <div>☁ {weather.clouds_pct ?? "—"}%</div>
+          <div style={{
+            fontFamily: "var(--font-body)", fontSize: 13, color: "var(--text-secondary)",
+            textTransform: "uppercase", letterSpacing: 1, marginBottom: 10,
+          }}>
+            {weather.description || "—"}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {[
+              { label: "WIND", value: `${weather.wind_speed?.toFixed(1) ?? "—"} m/s`, color: "#448aff" },
+              { label: "VIS", value: `${weather.visibility_km?.toFixed(0) ?? "—"} km`, color: "#39ff14" },
+              { label: "CLOUD", value: `${weather.clouds_pct ?? "—"}%`, color: "#7a8a9e" },
+            ].map(({ label, value, color }) => (
+              <div key={label} style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                fontFamily: "var(--font-mono)", fontSize: 10,
+              }}>
+                <span style={{
+                  fontFamily: "var(--font-display)", fontSize: 8, letterSpacing: 2,
+                  color: "var(--text-tertiary)",
+                }}>{label}</span>
+                <span style={{ color, fontWeight: 500 }}>{value}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
       {/* ── Alert panel — right side ──────────────────────────── */}
       {showAlertPanel && (
-        <div className="alert-panel" style={{
-          position: "absolute", top: 16, right: 60,
-          background: "rgba(0,0,0,0.92)", color: "#ccc",
-          padding: "12px 16px", borderRadius: 10,
-          fontFamily: "'Courier New', monospace", fontSize: 11,
-          border: "1px solid rgba(255,100,0,0.4)",
-          backdropFilter: "blur(10px)", zIndex: 20,
-          maxHeight: "60vh", overflowY: "auto", width: 320,
+        <div className="alert-panel panel" style={{
+          position: "absolute", top: weather ? 230 : 56, right: 16,
+          padding: 14, zIndex: 20,
+          maxHeight: "50vh", overflowY: "auto", width: 340,
+          animation: "fade-in-up 0.4s ease-out",
+          borderColor: "rgba(255,23,68,0.2)",
         }}>
           <div style={{
             display: "flex", justifyContent: "space-between", alignItems: "center",
-            marginBottom: 8, borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: 6,
+            marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid rgba(255,23,68,0.15)",
           }}>
-            <span style={{ color: "#ff8800", letterSpacing: 1, fontSize: 10 }}>
-              🔔 ALERTS & ANOMALIES ({alerts.length})
-            </span>
-            <button onClick={() => setAlerts([])} style={{
-              background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 10,
-            }}>CLEAR</button>
+            <div className="panel-header" style={{ borderBottom: "none", marginBottom: 0, paddingBottom: 0 }}>
+              THREAT INTELLIGENCE
+            </div>
+            <button onClick={() => setAlerts([])} className="btn-tactical" style={{ padding: "3px 8px", fontSize: 8 }}>
+              PURGE
+            </button>
           </div>
+
           {alerts.length === 0 ? (
-            <div style={{ color: "#555", textAlign: "center", padding: 16 }}>No alerts</div>
+            <div style={{
+              color: "var(--text-tertiary)", textAlign: "center", padding: 24,
+              fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: 1,
+            }}>
+              NO ACTIVE THREATS
+            </div>
           ) : (
             alerts.slice(0, 30).map((alert, i) => (
               <div key={i} style={{
-                padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.05)",
+                padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.03)",
+                display: "flex", gap: 8, alignItems: "flex-start",
+                animation: `data-stream 0.5s ease-out ${i * 0.05}s both`,
               }}>
-                <span style={{
-                  display: "inline-block", width: 8, height: 8, borderRadius: "50%",
-                  background: severityColor(alert.severity), marginRight: 6,
-                }} />
-                <span style={{ color: severityColor(alert.severity), fontSize: 10, marginRight: 4 }}>
-                  [{alert.severity.toUpperCase()}]
+                <span className={`severity-badge ${severityClass(alert.severity)}`}>
+                  {alert.severity?.toUpperCase() || "INFO"}
                 </span>
-                <span style={{ fontSize: 11 }}>{alert.message}</span>
+                <span style={{
+                  fontFamily: "var(--font-mono)", fontSize: 11,
+                  color: "var(--text-primary)", lineHeight: 1.4,
+                }}>
+                  {alert.message}
+                </span>
               </div>
             ))
           )}
@@ -608,18 +815,13 @@ export default function LiveMap() {
 
       {/* Camera panel */}
       <CameraPanel />
+
+      {/* ── Bottom gradient fade ──────────────────────────────── */}
+      <div style={{
+        position: "absolute", bottom: 0, left: 0, right: 0, height: 60,
+        background: "linear-gradient(0deg, rgba(5,8,13,0.6) 0%, transparent 100%)",
+        pointerEvents: "none", zIndex: 5,
+      }} />
     </div>
   );
 }
-
-/* ── Shared button style ─────────────────────────────────────── */
-const btnStyle: React.CSSProperties = {
-  background: "rgba(0,255,0,0.1)",
-  color: "#0f0",
-  border: "1px solid rgba(0,255,0,0.3)",
-  borderRadius: 4,
-  padding: "4px 10px",
-  cursor: "pointer",
-  fontFamily: "'Courier New', monospace",
-  fontSize: 11,
-};

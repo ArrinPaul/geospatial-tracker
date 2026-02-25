@@ -1,6 +1,48 @@
 /* ═══════════════════════════════════════════════════════════════════
-   Geospatial Tracker — Global Styles & Mobile Responsiveness
+   GEOSPATIAL INTELLIGENCE PLATFORM — TACTICAL DISPLAY SYSTEM
+   Aesthetic: Palantir Gotham / CIA SOC Dark Operations Console
    ═══════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&display=swap');
+
+:root {
+  /* Core palette — cold intel blue */
+  --bg-abyss: #05080d;
+  --bg-panel: rgba(8, 14, 25, 0.92);
+  --bg-panel-hover: rgba(12, 20, 35, 0.95);
+  --bg-input: rgba(6, 12, 22, 0.9);
+
+  /* Accent system */
+  --accent-primary: #00e5ff;
+  --accent-primary-dim: rgba(0, 229, 255, 0.15);
+  --accent-primary-glow: rgba(0, 229, 255, 0.4);
+  --accent-secondary: #39ff14;
+  --accent-secondary-dim: rgba(57, 255, 20, 0.12);
+  --accent-warning: #ff9100;
+  --accent-critical: #ff1744;
+  --accent-critical-dim: rgba(255, 23, 68, 0.15);
+  --accent-info: #448aff;
+
+  /* Text hierarchy */
+  --text-primary: #e0e6ed;
+  --text-secondary: #7a8a9e;
+  --text-tertiary: #3d4f65;
+  --text-accent: var(--accent-primary);
+
+  /* Borders */
+  --border-subtle: rgba(0, 229, 255, 0.08);
+  --border-active: rgba(0, 229, 255, 0.25);
+  --border-glow: rgba(0, 229, 255, 0.5);
+
+  /* Fonts */
+  --font-display: 'Orbitron', sans-serif;
+  --font-body: 'Rajdhani', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Sizing */
+  --panel-radius: 3px;
+  --panel-padding: 16px;
+}
 
 *,
 *::before,
@@ -10,28 +52,126 @@
   padding: 0;
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: #000;
-  color: #fff;
+html, body, #root {
+  width: 100%;
+  height: 100%;
   overflow: hidden;
 }
 
-/* Scrollbar styling for alert panel */
-::-webkit-scrollbar {
-  width: 4px;
+body {
+  font-family: var(--font-body);
+  background: var(--bg-abyss);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
-::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.3);
-}
+
+/* ─── Scrollbar ─────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 255, 0, 0.3);
-  border-radius: 2px;
+  background: rgba(0, 229, 255, 0.2);
+  border-radius: 1px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 229, 255, 0.4);
+}
+
+/* ─── MapLibre overrides ────────────────────────────────────────── */
+.maplibregl-ctrl-top-right {
+  top: 80px !important;
+  right: 8px !important;
+}
+
+.maplibregl-ctrl-group {
+  background: var(--bg-panel) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 2px !important;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.6) !important;
+}
+
+.maplibregl-ctrl-group button {
+  background: transparent !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top: none !important;
+}
+
+.maplibregl-ctrl-group button:hover {
+  background: var(--accent-primary-dim) !important;
+}
+
+.maplibregl-ctrl-group button span {
+  filter: invert(1) brightness(0.7) !important;
+}
+
+.maplibregl-popup-content {
+  background: var(--bg-panel) !important;
+  border: 1px solid var(--border-active) !important;
+  border-radius: 2px !important;
+  color: var(--text-primary) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 11px !important;
+  padding: 12px !important;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.7), 0 0 15px var(--accent-primary-dim) !important;
+}
+
+.maplibregl-popup-tip {
+  border-top-color: var(--border-active) !important;
+}
+
+.maplibregl-popup-close-button {
+  color: var(--text-secondary) !important;
+  font-size: 16px !important;
+}
+
+/* ─── Scanline overlay ──────────────────────────────────────────── */
+.scanline-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+  mix-blend-mode: multiply;
+}
+
+/* ─── Keyframe animations ───────────────────────────────────────── */
+@keyframes indicator-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes sweep {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes border-glow {
+  0%, 100% { border-color: var(--border-subtle); }
+  50% { border-color: var(--border-active); }
+}
+
+@keyframes data-stream {
+  0% { opacity: 0; transform: translateY(-4px); }
+  20% { opacity: 1; transform: translateY(0); }
+  80% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(4px); }
 }
 
 /* ─── Mobile Responsive ─────────────────────────────────────────── */
-
-/* Tablets (≤ 768px) */
 @media (max-width: 768px) {
   .hud-panel {
     top: 8px !important;
@@ -39,15 +179,12 @@ body {
     right: 8px !important;
     min-width: unset !important;
     max-width: unset !important;
-    padding: 10px 14px !important;
-    font-size: 11px !important;
   }
 
   .toggle-panel {
     top: unset !important;
     bottom: 70px !important;
     left: 8px !important;
-    padding: 8px 12px !important;
   }
 
   .weather-panel {
@@ -55,9 +192,6 @@ body {
     bottom: 70px !important;
     right: 8px !important;
     left: unset !important;
-    min-width: 120px !important;
-    padding: 8px 10px !important;
-    font-size: 10px !important;
   }
 
   .alert-panel {
@@ -71,40 +205,20 @@ body {
 
   .replay-panel {
     bottom: 10px !important;
-    padding: 6px 10px !important;
   }
 
-  /* MapLibre nav control */
   .maplibregl-ctrl-top-right {
     top: 200px !important;
   }
 }
 
-/* Phones (≤ 480px) */
 @media (max-width: 480px) {
   .hud-panel {
-    padding: 8px 10px !important;
     font-size: 10px !important;
-    border-radius: 6px !important;
   }
 
   .toggle-panel {
     bottom: 60px !important;
-    font-size: 10px !important;
-  }
-
-  .weather-panel {
-    bottom: 60px !important;
-    font-size: 9px !important;
-  }
-
-  .replay-panel {
-    font-size: 10px !important;
-    gap: 6px !important;
-  }
-
-  .alert-panel {
-    max-height: 35vh !important;
     font-size: 10px !important;
   }
 }

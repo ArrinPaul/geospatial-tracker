@@ -41,6 +41,26 @@ DEFAULT_BBOX = {
     "lomax": -117.6,
 }
 
+
+def make_city_config(name: str, lon: float, lat: float, zoom: int = 10) -> dict:
+    """Create a city config from a center point with auto-generated bbox."""
+    spread = 0.5  # ~55km in each direction
+    return {
+        "name": name,
+        "center": [lon, lat],
+        "zoom": zoom,
+        "lat": lat,
+        "lon": lon,
+        "bbox": {
+            "lamin": lat - spread,
+            "lomin": lon - spread * 1.2,
+            "lamax": lat + spread,
+            "lomax": lon + spread * 1.2,
+        },
+        "satellite_bbox": [lon - spread * 1.2, lat - spread, lon + spread * 1.2, lat + spread],
+    }
+
+
 # ─── Multi-City Support ──────────────────────────────────────────
 CITY_CONFIGS = {
     "los_angeles": {
@@ -80,6 +100,16 @@ CITY_CONFIGS = {
         "satellite_bbox": [-88.0, 41.6, -87.3, 42.1],
     },
 }
+
+
+def get_city_config(city: str | None = None, lat: float | None = None, lon: float | None = None) -> dict:
+    """Get city config by name, or dynamically from lat/lon coordinates."""
+    if city and city in CITY_CONFIGS:
+        return CITY_CONFIGS[city]
+    if lat is not None and lon is not None:
+        name = f"Custom ({lat:.2f}, {lon:.2f})"
+        return make_city_config(name, lon, lat)
+    return CITY_CONFIGS["los_angeles"]
 
 # ─── Vision Provider Priority Order ──────────────────────────────
 # Fallback chain: Groq (FREE) → Together (FREE) → Gemini Flash (FREE) → OpenAI (PAID)

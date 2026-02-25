@@ -21,7 +21,6 @@ services:
     env_file:
       - .env
     environment:
-      - VITE_MAPBOX_TOKEN=${MAPBOX_TOKEN}
       - VITE_WS_URL=ws://localhost:8000/ws/live
     volumes:
       - ./frontend:/app
